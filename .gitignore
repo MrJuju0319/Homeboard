@@ -1,0 +1,10 @@
+# Configuration de déploiement personnelle
+.deploy.env
+
+# Captures de test
+screenshots/
+
+# Divers
+*.tgz
+*.zip
+.DS_Store

@@ -1,0 +1,1166 @@
+/* =========================================================================
+   Homeboard — application (vanilla JS, aucun build, aucune dépendance)
+   ========================================================================= */
+(function () {
+	'use strict';
+
+	var root = null;
+	var API = null;
+	var CFG_URL = '';
+	var EXIT_URL = '';
+
+	/* ------------------------------------------------------------------ */
+	/*  Icônes (viewBox 24x24, trait unique => alignement constant)        */
+	/* ------------------------------------------------------------------ */
+
+	var ICONS = {
+		home: '<path d="M3 10.2 12 3l9 7.2V21a1 1 0 0 1-1 1h-5.5v-6.5h-5V22H4a1 1 0 0 1-1-1z"/>',
+		sofa: '<path d="M5 11V7.5A1.5 1.5 0 0 1 6.5 6h11A1.5 1.5 0 0 1 19 7.5V11"/><path d="M3 11.5a2 2 0 0 1 2 2V15h14v-1.5a2 2 0 1 1 4 0V18a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-4.5a2 2 0 0 1 2-2z"/>',
+		bed: '<path d="M3 20V8"/><path d="M3 12h18v8"/><path d="M21 20v-4"/><path d="M7 12V9.5h5V12"/>',
+		kitchen: '<path d="M6 3v8a2 2 0 0 0 4 0V3"/><path d="M8 11v10"/><path d="M17 3c-1.4 2-2 4-2 6s.6 3.5 2 3.5 2-1.5 2-3.5-.6-4-2-6z"/><path d="M17 12.5V21"/>',
+		bath: '<path d="M3 12h18v3a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z"/><path d="M6 12V6.5A2.5 2.5 0 0 1 11 6.5"/><path d="M7 19.5 6 22"/><path d="M17 19.5 18 22"/>',
+		garage: '<path d="M3 21V9.5L12 3l9 6.5V21"/><path d="M7 21v-7h10v7"/><path d="M7 17.5h10"/>',
+		garden: '<path d="M12 21v-7"/><path d="M12 14c-4.4 0-8-3.6-8-8 4.4 0 8 3.6 8 8z"/><path d="M12 14c0-4.4 3.6-8 8-8 0 4.4-3.6 8-8 8z"/>',
+		light: '<path d="M9 17h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9V17h7v-3.1A6 6 0 0 0 12 3z"/>',
+		lamp: '<path d="M8 3h8l3 8H5z"/><path d="M12 11v7"/><path d="M9 21h6"/>',
+		plug: '<path d="M9 2v5"/><path d="M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-6 6 6 6 0 0 1-6-6z"/><path d="M12 17v5"/>',
+		thermometer: '<path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
+		shutter: '<path d="M3 4h18"/><path d="M4 4v16"/><path d="M20 4v16"/><path d="M4 9h16"/><path d="M4 14h16"/>',
+		camera: '<path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h3L9.5 4h5L16.5 7h3A1.5 1.5 0 0 1 21 8.5v10A1.5 1.5 0 0 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5z"/><circle cx="12" cy="13" r="3.6"/>',
+		sensor: '<path d="M20.5 16.5a9 9 0 1 0-17 0"/><path d="M12 14l3.8-3.8"/>',
+		power: '<path d="M18.4 7.2a8.5 8.5 0 1 1-12.8 0"/><path d="M12 3v8"/>',
+		water: '<path d="M12 3s6 6.4 6 10.5a6 6 0 0 1-12 0C6 9.4 12 3 12 3z"/>',
+		tv: '<rect x="2" y="7" width="20" height="12" rx="2"/><path d="M8 3l4 4 4-4"/>',
+		office: '<path d="M3 8h18"/><path d="M6 8v13"/><path d="M18 8v13"/><path d="M3 13h18"/>',
+		child: '<circle cx="12" cy="11" r="8"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M9.5 14.5s1 1.3 2.5 1.3 2.5-1.3 2.5-1.3"/>',
+		stairs: '<path d="M3 20h4v-4h4v-4h4V8h4V4"/>',
+		pool: '<path d="M2 15c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M2 20c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M8 11V6a2 2 0 0 1 4 0"/><path d="M16 11V6a2 2 0 0 1 4 0"/>',
+		scene: '<path d="M12 3l1.9 4.7L18.6 9.6l-4.7 1.9L12 16.2l-1.9-4.7L5.4 9.6l4.7-1.9z"/><path d="M18 16l.9 2.2 2.1.8-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.8z"/>',
+		fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-3 1-7 4-7 2 0 3 2 3 4 0 2-2 3-5 3z"/><path d="M14 12c3 0 7 1 7 4 0 2-2 3-4 3-2 0-3-2-3-5z"/><path d="M12 14c0 3-1 7-4 7-2 0-3-2-3-4 0-2 2-3 5-3z"/><path d="M10 12c-3 0-7-1-7-4 0-2 2-3 4-3 2 0 3 2 3 5z"/>',
+		car: '<path d="M5 17h14"/><path d="M6.5 17V13l1.8-4.2A2 2 0 0 1 10.1 7.5h3.8a2 2 0 0 1 1.8 1.3L17.5 13v4"/><path d="M4 13h16"/><circle cx="8" cy="17.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>',
+		chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+		shrink: '<path d="M9 3v6H3"/><path d="M3 9l6-6"/><path d="M15 21v-6h6"/><path d="M21 15l-6 6"/>',
+		close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+		install: '<path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
+		sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+	};
+
+	var MODE_LABELS = {
+		heat: 'Chauffage', cool: 'Clim', arret: 'Arrêt', off: 'Arrêt', auto: 'Auto',
+		eco: 'Éco', comfort: 'Confort', confort: 'Confort', absence: 'Absence',
+		frost: 'Hors gel', boost: 'Boost', dry: 'Déshumidifier', fan: 'Ventilation'
+	};
+
+	/* ------------------------------------------------------------------ */
+	/*  État local                                                         */
+	/* ------------------------------------------------------------------ */
+
+	var S = {
+		rooms: [],
+		favorites: [],
+		charts: [],
+		home: { homeName: 'Maison', showClock: 1, refresh: 3 },
+		active: 'all',
+		values: {},
+		tiles: {},
+		pending: {},
+		dragging: false,
+		timer: null,
+		installEvent: null,
+		sheet: null,
+		sparks: {},
+		favById: {}
+	};
+
+	/* ------------------------------------------------------------------ */
+	/*  Utilitaires                                                        */
+	/* ------------------------------------------------------------------ */
+
+	function esc(s) {
+		return String(s === null || s === undefined ? '' : s)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	}
+
+	function svg(name, cls) {
+		var d = ICONS[name] || ICONS.sensor;
+		return '<svg class="hb-i ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+			'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+	}
+
+	function api(params) {
+		var qs = Object.keys(params).map(function (k) {
+			return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+		}).join('&');
+		return fetch(API + '?' + qs, { credentials: 'same-origin', cache: 'no-store' })
+			.then(function (r) { return r.json(); })
+			.then(function (j) {
+				if (!j || j.state !== 'ok') { throw new Error((j && j.result) ? j.result : 'Erreur API'); }
+				return j.result;
+			});
+	}
+
+	function toast(msg) {
+		var t = document.createElement('div');
+		t.className = 'hb-toast';
+		t.textContent = msg;
+		document.body.appendChild(t);
+		setTimeout(function () { t.classList.add('is-out'); }, 2200);
+		setTimeout(function () { if (t.parentNode) { t.parentNode.removeChild(t); } }, 2700);
+	}
+
+	function val(id) { return id && S.values[id] ? S.values[id] : null; }
+
+	function num(v) {
+		if (v === null || v === undefined || v === '') { return null; }
+		var n = parseFloat(String(v).replace(',', '.'));
+		return isNaN(n) ? null : n;
+	}
+
+	function fmt(n, dec) {
+		if (n === null || n === undefined) { return '—'; }
+		var d = (dec === undefined) ? ((Math.abs(n - Math.round(n)) < 0.05) ? 0 : 1) : dec;
+		return Number(n).toFixed(d).replace('.', ',');
+	}
+
+	function tileState(t) {
+		var c = t.caps || {};
+		var id = c.state || (t.state && t.state.id);
+		var v = val(id);
+		return v || t.state || null;
+	}
+
+	function isOn(t) {
+		if (t.kind === 'light' || t.kind === 'switch' || t.kind === 'shutter') {
+			var st = tileState(t);
+			var n = num(st ? st.value : null);
+			return n !== null && n > 0;
+		}
+		return false;
+	}
+
+	function modeLabel(name) {
+		var n = String(name || '').trim();
+		var w = n.split(/\s+/);
+		if (w.length > 1) { n = w[w.length - 1]; }
+		var k = n.toLowerCase();
+		return MODE_LABELS[k] || n;
+	}
+
+	function hhmm(ts) {
+		return new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+	}
+
+	/* Retour haptique léger (Android ; ignoré silencieusement ailleurs) */
+	function haptic(ms) {
+		if (navigator.vibrate) {
+			try { navigator.vibrate(ms || 10); } catch (e) { /* noop */ }
+		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Interface : structure                                              */
+	/* ------------------------------------------------------------------ */
+
+	var navEl, navList, headEl, sectionsEl;
+
+	function buildShell() {
+		root.innerHTML = '<div class="hb-app">' +
+			'<aside class="hb-nav" id="hb-nav" role="tablist"></aside>' +
+			'<main class="hb-main">' +
+			'<div class="hb-head" id="hb-head"></div>' +
+			'<div id="hb-sections"></div>' +
+			'<div class="hb-foot"><span class="hb-dot" id="hb-dot"></span><span id="hb-foot-txt">Synchronisé</span></div>' +
+			'</main></div>';
+		navEl = document.getElementById('hb-nav');
+		headEl = document.getElementById('hb-head');
+		sectionsEl = document.getElementById('hb-sections');
+	}
+
+	function paintNav() {
+		var html = '<button class="hb-nav__item hb-nav__item--all" data-room="all" role="tab">' +
+			svg('home') + '<span>Tout</span></button>' +
+			'<div class="hb-nav__list" id="hb-nav-list">';
+		S.rooms.forEach(function (r) {
+			html += '<button class="hb-nav__item" data-room="' + r.id + '" role="tab">' +
+				svg(r.icon || 'home') + '<span>' + esc(r.name) + '</span></button>';
+		});
+		html += '</div><button class="hb-nav__item hb-nav__item--charts" data-room="charts" role="tab">' +
+			svg('chart') + '<span>Graphiques</span></button>';
+		navEl.innerHTML = html;
+		navList = document.getElementById('hb-nav-list');
+		markActive();
+	}
+
+	function markActive() {
+		var items = navEl.querySelectorAll('.hb-nav__item');
+		for (var i = 0; i < items.length; i++) {
+			var isActive = String(items[i].getAttribute('data-room')) === String(S.active);
+			items[i].classList.toggle('is-active', isActive);
+			items[i].setAttribute('aria-selected', isActive ? 'true' : 'false');
+		}
+	}
+
+	function summary() {
+		var lightsOn = 0, lights = 0, others = 0, temps = [];
+		S.rooms.forEach(function (r) {
+			r.tiles.forEach(function (t) {
+				if (t.kind === 'light') {
+					lights++;
+					if (isOn(t)) { lightsOn++; }
+				} else if (t.kind === 'switch' && isOn(t)) {
+					others++;
+				} else if (t.kind === 'sensor' && t.state.unit === '°C') {
+					var n = num(tileState(t) ? tileState(t).value : null);
+					if (n !== null) { temps.push(n); }
+				}
+			});
+		});
+		var parts = [];
+		if (temps.length) {
+			var sum = 0;
+			temps.forEach(function (v) { sum += v; });
+			parts.push(fmt(sum / temps.length, 1) + ' °C de moyenne');
+		}
+		if (lights) {
+			parts.push(lightsOn === 0 ? 'aucune lumière allumée' :
+				lightsOn + (lightsOn > 1 ? ' lumières allumées' : ' lumière allumée'));
+		}
+		if (others) {
+			parts.push(others + (others > 1 ? ' appareils actifs' : ' appareil actif'));
+		}
+		return parts.join(' · ');
+	}
+
+	function paintHead() {
+		var now = new Date();
+		var clock = '';
+		if (Number(S.home.showClock)) {
+			clock = '<div class="hb-clock" id="hb-clock">' +
+				now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + '</div>' +
+				'<div class="hb-date" id="hb-date">' +
+				now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) + '</div>';
+		}
+		var install = '';
+		if (S.installEvent) {
+			install = '<button class="hb-installbtn" id="hb-install">' + svg('install') + '<span>Installer</span></button>';
+		}
+		var exit = '';
+		if (EXIT_URL) {
+			exit = '<a class="hb-exitbtn" href="' + esc(EXIT_URL) + '" title="Quitter le plein écran" ' +
+				'aria-label="Quitter le plein écran">' + svg('shrink') + '</a>';
+		}
+		headEl.innerHTML = '<div class="hb-head__left"><h1 class="hb-head__title">' + esc(S.home.homeName) + '</h1>' +
+			'<p class="hb-head__sub" id="hb-summary">' + esc(summary()) + '</p></div>' +
+			'<div class="hb-head__right">' + clock + install + exit + '</div>';
+		var btn = document.getElementById('hb-install');
+		if (btn) {
+			btn.addEventListener('click', function () {
+				if (!S.installEvent) { return; }
+				S.installEvent.prompt();
+				S.installEvent = null;
+				paintHead();
+			});
+		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Tuiles                                                             */
+	/* ------------------------------------------------------------------ */
+
+	function tileSig(t) {
+		var c = t.caps || {};
+		var ids = [c.state, c.bri, c.temp, c.setpoint];
+		var parts = [];
+		ids.forEach(function (id) {
+			var v = val(id);
+			parts.push(id ? (v ? String(v.value) : '') : '');
+		});
+		return t.kind + '|' + (isOn(t) ? 1 : 0) + '|' + parts.join('/');
+	}
+
+	function tileHtml(t, showRoom) {
+		var on = isOn(t);
+		var cls = 'hb-tile hb-tile--' + t.kind;
+		if (t.size === 'wide') { cls += ' hb-tile--wide'; }
+		if (t.size === 'tall') { cls += ' hb-tile--tall'; }
+		cls += on ? ' is-on' : ' is-off';
+
+		var html = '<div class="' + cls + '" data-tile="' + t.id + '" data-sig="' + esc(tileSig(t)) + '" ' +
+			(showRoom ? 'data-fav="1" ' : '') +
+			'role="button" tabindex="0" aria-label="' + esc(t.label) + '">';
+
+		if (t.kind === 'thermostat') {
+			html += thermostatHtml(t, showRoom);
+		} else if (t.kind === 'sensor') {
+			var st = tileState(t);
+			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
+				(t.chart ? '<span class="hb-tile__hint">' + svg('chart') + '</span>' : '') + '</div>' +
+				'<div class="hb-tile__body">' +
+				'<div class="hb-value">' + esc(st ? st.display : '—') +
+				(st && st.unit ? '<span class="hb-value__unit">' + esc(st.unit) + '</span>' : '') + '</div>' +
+				'<div class="hb-tile__name">' + esc(t.label) + '</div>' +
+				'</div>';
+		} else {
+			var st2 = tileState(t);
+			var badge = '';
+			var sub = '';
+			if (t.kind === 'light') {
+				var bri = val(t.caps && t.caps.bri);
+				if (bri && num(bri.value) !== null && on) { badge = fmt(num(bri.value), 0) + ' %'; }
+				sub = on ? 'Allumée' : 'Éteinte';
+			} else if (t.kind === 'shutter') {
+				var n = num(st2 ? st2.value : null);
+				sub = (n === null) ? '' : (n <= 0 ? 'Fermé' : (n >= 100 ? 'Ouvert' : fmt(n, 0) + ' %'));
+			} else {
+				sub = on ? 'Allumé' : 'Éteint';
+			}
+			if (showRoom && t.room_name) { sub = t.room_name; }
+			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
+				'<span class="hb-tile__badge">' + esc(badge) + '</span></div>' +
+				'<div class="hb-tile__body"><div class="hb-tile__name">' + esc(t.label) + '</div>' +
+				'<div class="hb-tile__sub">' + esc(sub) + '</div></div>';
+
+			if (t.kind === 'light' && t.caps && t.caps.briSet && t.caps.bri) {
+				/* La luminosité se règle en appui long (feuille de détail), plus
+				   dans la tuile : sur mobile le curseur se touchait en scrollant. */
+			}
+		}
+		return html + '</div>';
+	}
+
+	function modeIsActive(t, m) {
+		var c = t.caps || {};
+		var st = c.state ? (val(c.state) || t.state) : t.state;
+		var activeName = String((st && st.display) || '').toLowerCase();
+		if (!activeName) { return false; }
+		return modeLabel(m.name).toLowerCase() === activeName;
+	}
+
+	function thermostatHtml(t, showRoom) {
+		var c = t.caps || {};
+		var temp = val(c.temp);
+		var setp = val(c.setpoint);
+		var stateName = c.state ? (val(c.state) || t.state) : t.state;
+		var cur = num(setp ? setp.value : null);
+		var modes = c.modes || [];
+		var activeName = String((stateName && stateName.display) || '').toLowerCase();
+
+		var modesHtml = '';
+		if (modes.length) {
+			modes.forEach(function (m) {
+				modesHtml += '<button class="hb-mode' + (modeIsActive(t, m) ? ' is-active' : '') +
+					'" data-act="mode" data-cmd="' + m.id + '">' + esc(modeLabel(m.name)) + '</button>';
+			});
+		}
+
+		return '<div class="hb-thermo__head">' +
+			'<div><div class="hb-thermo__cur">' + esc(temp ? temp.display : '—') +
+			'<small>' + esc((temp && temp.unit) || '°C') + '</small></div>' +
+			'<div class="hb-thermo__state">' + esc(stateName ? stateName.display : '') + '</div></div>' +
+			(modesHtml ? '<div class="hb-thermo__modes">' + modesHtml + '</div>' : '') +
+			'</div>' +
+			'<div class="hb-thermo__foot">' +
+			(c.setSetpoint ? '<div class="hb-thermo__target">' +
+				'<button class="hb-step" data-act="minus" aria-label="Diminuer">−</button>' +
+				'<div class="hb-thermo__set">' + fmt(cur, 1) + '<small>°C</small></div>' +
+				'<button class="hb-step" data-act="plus" aria-label="Augmenter">+</button>' +
+				'</div>' : '<div></div>') +
+			'<div class="hb-thermo__name">' + esc(showRoom && t.room_name ? t.room_name : t.label) + '</div>' +
+			'</div>';
+	}
+
+	function roomSection(room, withTitle) {
+		var html = '<section class="hb-section" data-room="' + room.id + '">';
+		if (withTitle) {
+			html += '<h2 class="hb-section__title">' + svg(room.icon || 'home') +
+				'<span>' + esc(room.name) + '</span>' +
+				'<span class="hb-section__count">' + room.tiles.length + '</span></h2>';
+		}
+		html += '<div class="hb-grid">';
+		if (!room.tiles.length) {
+			html += '<div class="hb-empty">Aucune tuile dans cette pièce.' +
+				(CFG_URL ? '<br><a href="' + esc(CFG_URL) + '">Ajouter des commandes</a>' : '') + '</div>';
+		} else {
+			room.tiles.forEach(function (t) { html += tileHtml(t); });
+		}
+		return html + '</div></section>';
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Graphiques                                                         */
+	/* ------------------------------------------------------------------ */
+
+	function chartCardHtml(ch) {
+		var v = num(ch.value);
+		return '<button class="hb-chartcard" data-chart="' + ch.cmd_id + '" data-tile="' + ch.tile_id + '">' +
+			'<div class="hb-chartcard__head">' +
+			'<span class="hb-chartcard__icon">' + svg(ch.icon || 'sensor') + '</span>' +
+			'<span class="hb-chartcard__meta"><span class="hb-chartcard__label">' + esc(ch.label) + '</span>' +
+			'<span class="hb-chartcard__room">' + esc(ch.room) + '</span></span>' +
+			'<span class="hb-chartcard__value">' + (v === null ? '—' : esc(fmt(v, undefined))) +
+			(ch.unit ? ' <small>' + esc(ch.unit) + '</small>' : '') + '</span>' +
+			'</div>' +
+			'<div class="hb-chartcard__spark" data-spark="' + ch.cmd_id + '"></div>' +
+			'<div class="hb-chartcard__stats" data-stats="' + ch.cmd_id + '"></div>' +
+			'</button>';
+	}
+
+	function chartsView() {
+		var html = '<section class="hb-section"><h2 class="hb-section__title">' + svg('chart') +
+			'<span>Graphiques</span></h2>';
+		if (!S.charts.length) {
+			return html + '<div class="hb-grid"><div class="hb-empty">Aucune commande historisée pour le moment.' +
+				'<br>Activez « Historiser » sur une commande dans Jeedom, puis ajoutez-la comme tuile.</div></div></section>';
+		}
+		html += '<div class="hb-charts">';
+		S.charts.forEach(function (ch) { html += chartCardHtml(ch); });
+		return html + '</div></section>';
+	}
+
+	function sparkline(points) {
+		if (!points || points.length < 2) { return '<div class="hb-spark-empty">Pas d\'historique</div>'; }
+		var W = 300, H = 64, pad = 3;
+		var min = Infinity, max = -Infinity;
+		points.forEach(function (p) { min = Math.min(min, p[1]); max = Math.max(max, p[1]); });
+		if (max - min < 0.001) { max = min + 1; }
+		var span = max - min;
+		var x0 = points[0][0], x1 = points[points.length - 1][0];
+		var dx = (x1 - x0) || 1;
+		var d = '';
+		points.forEach(function (p, i) {
+			var x = ((p[0] - x0) / dx) * (W - pad * 2) + pad;
+			var y = H - pad - ((p[1] - min) / span) * (H - pad * 2);
+			d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+		});
+		var area = d + 'L' + (W - pad) + ' ' + (H - pad) + ' L' + pad + ' ' + (H - pad) + ' Z';
+		return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="hb-spark">' +
+			'<path d="' + area + '" fill="rgba(245,158,11,0.10)"/>' +
+			'<path d="' + d + '" fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-linejoin="round" ' +
+			'stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>';
+	}
+
+	function bigChart(points) {
+		if (!points || points.length < 2) {
+			return '<div class="hb-chart-empty">Pas encore d\'historique sur cette période.</div>';
+		}
+		var W = 600, H = 200, padT = 10, padB = 10;
+		var min = Infinity, max = -Infinity;
+		points.forEach(function (p) { min = Math.min(min, p[1]); max = Math.max(max, p[1]); });
+		if (max - min < 0.001) { max = min + 1; }
+		var span = max - min;
+		var x0 = points[0][0], x1 = points[points.length - 1][0];
+		var dx = (x1 - x0) || 1;
+		var d = '';
+		points.forEach(function (p, i) {
+			var x = ((p[0] - x0) / dx) * W;
+			var y = H - padB - ((p[1] - min) / span) * (H - padT - padB);
+			d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+		});
+		var area = d + 'L' + W + ' ' + (H - padB) + ' L0 ' + (H - padB) + ' Z';
+		var grid = '';
+		for (var i = 0; i <= 3; i++) {
+			var y = padT + (i * (H - padT - padB) / 3);
+			grid += '<line x1="0" y1="' + y + '" x2="' + W + '" y2="' + y + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>';
+		}
+		return '<div class="hb-bigchart">' +
+			'<div class="hb-bigchart__ylabels"><span>' + esc(fmt(max, undefined)) + '</span>' +
+			'<span>' + esc(fmt(min, undefined)) + '</span></div>' +
+			'<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="hb-bigchart__svg">' +
+			grid +
+			'<path d="' + area + '" fill="rgba(245,158,11,0.10)"/>' +
+			'<path d="' + d + '" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linejoin="round" ' +
+			'stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>' +
+			'<div class="hb-bigchart__xlabels"><span>' + esc(hhmm(x0)) + '</span><span>' + esc(hhmm(x1)) + '</span></div>' +
+			'</div>';
+	}
+
+	function sortChartCards() {
+		var wrap = sectionsEl.querySelector('.hb-charts');
+		if (!wrap) { return; }
+		var cards = Array.prototype.slice.call(wrap.children);
+		cards.sort(function (a, b) {
+			var da = S.sparks[a.getAttribute('data-chart')];
+			var db = S.sparks[b.getAttribute('data-chart')];
+			var na = (da && da.points && da.points.length > 1) ? 0 : 1;
+			var nb = (db && db.points && db.points.length > 1) ? 0 : 1;
+			return na - nb;
+		});
+		cards.forEach(function (c) { wrap.appendChild(c); });
+	}
+
+	function loadSparks() {
+		S.charts.forEach(function (ch) {
+			if (S.sparks[ch.cmd_id]) { return; }
+			api({ action: 'history', cmd_id: ch.cmd_id, period: 'day' }).then(function (h) {
+				S.sparks[ch.cmd_id] = h;
+				var box = sectionsEl.querySelector('[data-spark="' + ch.cmd_id + '"]');
+				if (box) { box.innerHTML = sparkline(h.points); }
+				var st = sectionsEl.querySelector('[data-stats="' + ch.cmd_id + '"]');
+				if (st && h.min !== null) {
+					st.textContent = 'min ' + fmt(h.min, undefined) + ' · moy ' + fmt(h.avg, undefined) +
+						' · max ' + fmt(h.max, undefined) + (ch.unit ? ' ' + ch.unit : '');
+				}
+				sortChartCards();
+			}).catch(function () {});
+		});
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Feuille de détail (graphique)                                      */
+	/* ------------------------------------------------------------------ */
+
+	function openSheet(ch) {
+		closeSheet();
+		var el = document.createElement('div');
+		el.className = 'hb-sheet';
+		el.innerHTML = '<div class="hb-sheet__backdrop" data-close="1"></div>' +
+			'<div class="hb-sheet__panel" role="dialog" aria-modal="true" aria-label="' + esc(ch.label) + '">' +
+			'<div class="hb-sheet__head">' +
+			'<div><div class="hb-sheet__title">' + esc(ch.label) + '</div>' +
+			'<div class="hb-sheet__sub">' + esc(ch.room) + ' · ' + esc(ch.chart_label) + '</div></div>' +
+			'<button class="hb-sheet__close" data-close="1" aria-label="Fermer">' + svg('close') + '</button>' +
+			'</div>' +
+			'<div class="hb-sheet__value" data-value>—</div>' +
+			'<div class="hb-periods" data-periods>' +
+			'<button data-period="day" class="is-active">24 h</button>' +
+			'<button data-period="week">7 jours</button>' +
+			'<button data-period="month">30 jours</button>' +
+			'</div>' +
+			'<div class="hb-sheet__chart" data-chart></div>' +
+			'<div class="hb-sheet__stats" data-stats></div>' +
+			'</div>';
+		document.body.appendChild(el);
+		S.sheet = { el: el, ch: ch, period: 'day' };
+		document.body.classList.add('hb-noscroll');
+
+		el.addEventListener('click', function (e) {
+			if (e.target.closest('[data-close]')) { closeSheet(); return; }
+			var p = e.target.closest('[data-period]');
+			if (p) {
+				Array.prototype.forEach.call(el.querySelectorAll('[data-period]'), function (b) {
+					b.classList.toggle('is-active', b === p);
+				});
+				S.sheet.period = p.getAttribute('data-period');
+				renderSheetChart();
+			}
+		});
+		renderSheetChart();
+	}
+
+	function renderSheetChart() {
+		if (!S.sheet) { return; }
+		var ch = S.sheet.ch;
+		var box = S.sheet.el.querySelector('[data-chart]');
+		box.innerHTML = '<div class="hb-chart-empty">Chargement…</div>';
+		api({ action: 'history', cmd_id: ch.cmd_id, period: S.sheet.period }).then(function (h) {
+			if (!S.sheet) { return; }
+			box.innerHTML = bigChart(h.points);
+			var st = S.sheet.el.querySelector('[data-stats]');
+			if (h.min === null) {
+				st.textContent = 'Aucune donnée sur cette période.';
+			} else {
+				st.innerHTML = '<span><b>' + fmt(h.min, undefined) + '</b> min</span>' +
+					'<span><b>' + fmt(h.avg, undefined) + '</b> moy</span>' +
+					'<span><b>' + fmt(h.max, undefined) + '</b> max</span>' +
+					'<span><b>' + fmt(h.last, undefined) + '</b> dernier</span>';
+			}
+			var v = S.sheet.el.querySelector('[data-value]');
+			var last = h.last !== null ? h.last : num(ch.value);
+			v.innerHTML = (last === null ? '—' : fmt(last, undefined)) +
+				(h.unit ? '<small>' + esc(h.unit) + '</small>' : '');
+		}).catch(function (e) {
+			box.innerHTML = '<div class="hb-chart-empty">' + esc(e.message) + '</div>';
+		});
+	}
+
+	function closeSheet() {
+		if (!S.sheet) { return; }
+		if (S.sheet.el.parentNode) { S.sheet.el.parentNode.removeChild(S.sheet.el); }
+		S.sheet = null;
+		document.body.classList.remove('hb-noscroll');
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Feuille de détail (appui long sur une tuile)                       */
+	/* ------------------------------------------------------------------ */
+
+	function detailHtml(t) {
+		var c = t.caps || {};
+		var on = isOn(t);
+		var html = '<div class="hb-detail">' +
+			'<div class="hb-detail__head">' +
+			'<span class="hb-detail__icon">' + svg(t.icon) + '</span>' +
+			'<div><div class="hb-detail__title">' + esc(t.label) + '</div>' +
+			'<div class="hb-detail__sub">' + esc(t.sub || '') + '</div></div>' +
+			'<button class="hb-sheet__close" data-close="1" aria-label="Fermer">' + svg('close') + '</button>' +
+			'</div>';
+
+		if (t.kind === 'light') {
+			var bri = c.bri ? num(val(c.bri) ? val(c.bri).value : null) : null;
+			html += '<div class="hb-detail__row"><button class="hb-bigbtn' + (on ? ' is-primary' : '') +
+				'" data-act="toggle">' + svg('power') + '<span>' + (on ? 'Allumée' : 'Éteinte') +
+				'</span></button></div>';
+			if (c.briSet && c.bri) {
+				var b = bri === null ? 0 : Math.round(bri);
+				html += '<div class="hb-slider">' +
+					'<input type="range" min="0" max="100" step="1" value="' + b +
+					'" style="--hb-fill:' + b + '%" aria-label="Luminosité">' +
+					'<span class="hb-slider__pct">' + b + ' %</span></div>' +
+					'<div class="hb-presets">' +
+					[20, 50, 75, 100].map(function (p) {
+						return '<button data-act="preset" data-value="' + p + '">' + p + ' %</button>';
+					}).join('') + '</div>';
+			}
+		} else if (t.kind === 'thermostat') {
+			var temp = val(c.temp);
+			var setp = num(val(c.setpoint) ? val(c.setpoint).value : null);
+			html += '<div class="hb-detail__value">' + esc(temp ? temp.display : '—') +
+				'<small>' + esc((temp && temp.unit) || '°C') + '</small></div>';
+			if (c.setSetpoint) {
+				html += '<div class="hb-detail__row">' +
+					'<button class="hb-bigbtn hb-bigbtn--step" data-act="minus" aria-label="Diminuer">−</button>' +
+					'<div class="hb-detail__target">' + fmt(setp, 1) + '<small>°C</small></div>' +
+					'<button class="hb-bigbtn hb-bigbtn--step" data-act="plus" aria-label="Augmenter">+</button></div>';
+			}
+			if (c.modes && c.modes.length) {
+				html += '<div class="hb-seg">' + c.modes.map(function (m) {
+					return '<button class="hb-seg__btn' + (modeIsActive(t, m) ? ' is-active' : '') +
+						'" data-act="mode" data-cmd="' + m.id + '">' + esc(modeLabel(m.name)) + '</button>';
+				}).join('') + '</div>';
+			}
+		} else if (t.kind === 'shutter') {
+			var st = tileState(t);
+			var pos = num(st ? st.value : null);
+			html += '<div class="hb-detail__value">' + (pos === null ? '—' : fmt(pos, 0)) +
+				'<small>%</small></div><div class="hb-detail__row">' +
+				(c.up ? '<button class="hb-bigbtn" data-act="up">Ouvrir</button>' : '') +
+				(c.stop ? '<button class="hb-bigbtn" data-act="stop">Stop</button>' : '') +
+				(c.down ? '<button class="hb-bigbtn" data-act="down">Fermer</button>' : '') + '</div>';
+		} else if (t.kind === 'sensor' || t.kind === 'camera') {
+			var s2 = tileState(t);
+			html += '<div class="hb-detail__value">' + esc(s2 ? s2.display : '—') +
+				(s2 && s2.unit ? '<small>' + esc(s2.unit) + '</small>' : '') + '</div>';
+			if (t.chart) {
+				html += '<div class="hb-detail__row"><button class="hb-bigbtn" data-act="chart">' +
+					svg('chart') + '<span>Voir la courbe</span></button></div>';
+			}
+		} else {
+			html += '<div class="hb-detail__row"><button class="hb-bigbtn' + (on ? ' is-primary' : '') +
+				'" data-act="toggle">' + svg('power') + '<span>' + (on ? 'Allumé' : 'Éteint') +
+				'</span></button></div>';
+		}
+
+		return html + '</div>';
+	}
+
+	function openDetail(t) {
+		closeSheet();
+		var el = document.createElement('div');
+		el.className = 'hb-sheet';
+		el.innerHTML = '<div class="hb-sheet__backdrop" data-close="1"></div>' +
+			'<div class="hb-sheet__panel" role="dialog" aria-modal="true" aria-label="' + esc(t.label) + '">' +
+			detailHtml(t) + '</div>';
+		document.body.appendChild(el);
+		S.sheet = { el: el, tile: t, kind: 'detail' };
+		document.body.classList.add('hb-noscroll');
+		el.addEventListener('click', detailClick);
+		el.addEventListener('input', detailInput);
+		el.addEventListener('change', detailChange);
+	}
+
+	function refreshDetail() {
+		if (!S.sheet || S.sheet.kind !== 'detail' || S.dragging) { return; }
+		var t = S.tiles[String(S.sheet.tile.id)];
+		if (!t) { return; }
+		S.sheet.tile = t;
+		var panel = S.sheet.el.querySelector('.hb-sheet__panel');
+		if (panel) { panel.innerHTML = detailHtml(t); }
+	}
+
+	function detailClick(e) {
+		if (e.target.closest('[data-close]')) { closeSheet(); return; }
+		var b = e.target.closest('[data-act]');
+		if (!b || !S.sheet) { return; }
+		var t = S.sheet.tile;
+		var c = t.caps || {};
+		var act = b.getAttribute('data-act');
+		if (act === 'toggle') {
+			toggle(t);
+			setTimeout(refreshDetail, 600);
+		} else if (act === 'plus' || act === 'minus') {
+			stepSetpoint(t, act);
+			setTimeout(refreshDetail, 600);
+		} else if (act === 'mode') {
+			Array.prototype.forEach.call(S.sheet.el.querySelectorAll('.hb-seg__btn'), function (p) {
+				p.classList.toggle('is-active', p === b);
+			});
+			haptic();
+			exec(b.getAttribute('data-cmd'), '');
+		} else if (act === 'up' || act === 'down' || act === 'stop') {
+			haptic();
+			exec(c[act], '');
+		} else if (act === 'preset') {
+			var v = b.getAttribute('data-value');
+			var inp = S.sheet.el.querySelector('input[type="range"]');
+			if (inp) {
+				inp.value = v;
+				inp.style.setProperty('--hb-fill', v + '%');
+			}
+			var pct = S.sheet.el.querySelector('.hb-slider__pct');
+			if (pct) { pct.textContent = v + ' %'; }
+			haptic();
+			exec(c.briSet, v, { id: c.bri, value: v });
+			setTimeout(refreshDetail, 600);
+		} else if (act === 'chart' && t.chart) {
+			var ch = t.chart;
+			closeSheet();
+			openSheet({
+				cmd_id: ch.cmd_id, label: t.label, room: t.sub, chart_label: ch.label,
+				unit: ch.unit, value: t.state.value, tile_id: t.id, icon: t.icon
+			});
+		}
+	}
+
+	function detailInput(e) {
+		if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
+		S.dragging = true;
+		e.target.style.setProperty('--hb-fill', e.target.value + '%');
+		var pct = S.sheet.el.querySelector('.hb-slider__pct');
+		if (pct) { pct.textContent = e.target.value + ' %'; }
+	}
+
+	function detailChange(e) {
+		if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
+		S.dragging = false;
+		var t = S.sheet && S.sheet.tile;
+		if (!t || !t.caps || !t.caps.briSet) { return; }
+		haptic();
+		exec(t.caps.briSet, e.target.value, { id: t.caps.bri, value: e.target.value });
+		setTimeout(refreshDetail, 600);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Navigation : suit la pièce visible au défilement                   */
+	/* ------------------------------------------------------------------ */
+
+	var navFollow = { frame: null, current: null };
+
+	function navItems() {
+		var box = navList || navEl;
+		return box ? box.querySelectorAll('.hb-nav__item[data-room]') : [];
+	}
+
+	function centerNavItem(el) {
+		var box = navList || navEl;
+		if (!box || !el) { return; }
+		var r = el.getBoundingClientRect();
+		var b = box.getBoundingClientRect();
+		var vertical = getComputedStyle(box).flexDirection === 'column';
+		if (vertical) {
+			box.scrollTop += (r.top - b.top) - (b.height - r.height) / 2;
+		} else {
+			box.scrollLeft += (r.left - b.left) - (b.width - r.width) / 2;
+		}
+	}
+
+	function updateNavFromScroll() {
+		navFollow.frame = null;
+		if (!sectionsEl || S.active !== 'all') { return; }
+		var secs = sectionsEl.querySelectorAll('.hb-section[data-room]');
+		if (!secs.length) { return; }
+		var limit = 120;
+		var current = null;
+		Array.prototype.forEach.call(secs, function (sec) {
+			if (sec.getBoundingClientRect().top <= limit) {
+				current = sec.getAttribute('data-room');
+			}
+		});
+		if (current === navFollow.current) { return; }
+		navFollow.current = current;
+		Array.prototype.forEach.call(navItems(), function (it) {
+			var on = current !== null && it.getAttribute('data-room') === current;
+			it.classList.toggle('is-current', on);
+			if (on) { centerNavItem(it); }
+		});
+	}
+
+	function scheduleNavFollow() {
+		if (navFollow.frame) { return; }
+		navFollow.frame = requestAnimationFrame(updateNavFromScroll);
+	}
+
+	function resetNavFollow() {
+		navFollow.current = null;
+		Array.prototype.forEach.call(navItems(), function (it) {
+			it.classList.remove('is-current');
+		});
+	}
+
+	function paintSections() {
+		if (S.active === 'charts') {
+			sectionsEl.innerHTML = chartsView();
+			loadSparks();
+			return;
+		}
+		var html = '';
+		var emptyAll = true;
+		S.rooms.forEach(function (r) { if (r.tiles.length) { emptyAll = false; } });
+
+		if (S.favorites.length && S.active === 'all') {
+			html += '<section class="hb-section"><h2 class="hb-section__title">' +
+				svg('scene') + '<span>Favoris</span></h2><div class="hb-grid">';
+			S.favorites.forEach(function (t) { html += tileHtml(t, true); });
+			html += '</div></section>';
+		}
+
+		if (S.active === 'all') {
+			S.rooms.forEach(function (r) {
+				if (r.tiles.length) { html += roomSection(r, true); }
+			});
+		} else {
+			var room = null;
+			S.rooms.forEach(function (r) { if (String(r.id) === String(S.active)) { room = r; } });
+			if (room) { html += roomSection(room, true); }
+		}
+
+		if (emptyAll) {
+			html = '<div class="hb-grid"><div class="hb-empty">Aucune commande configurée pour le moment.' +
+				(CFG_URL ? '<br><a href="' + esc(CFG_URL) + '">Configurer le tableau de bord</a>' : '') +
+				'</div></div>';
+		}
+		sectionsEl.innerHTML = html;
+		scheduleNavFollow();
+	}
+
+	/* Rafraîchissement ciblé : ne remplace que les tuiles dont la valeur change */
+	function refreshTiles() {
+		if (S.active === 'charts' || S.dragging) { return; }
+		Object.keys(S.tiles).forEach(function (id) {
+			var t = S.tiles[id];
+			var sig = tileSig(t);
+			var els = sectionsEl.querySelectorAll('[data-tile="' + id + '"]');
+			if (!els.length) { return; }
+			var needs = false;
+			Array.prototype.forEach.call(els, function (el) {
+				if (el.getAttribute('data-sig') !== sig) { needs = true; }
+			});
+			if (!needs) { return; }
+			Array.prototype.forEach.call(els, function (el) {
+				var fav = el.getAttribute('data-fav') === '1';
+				var src = fav && S.favById[id] ? S.favById[id] : t;
+				var wrap = document.createElement('div');
+				wrap.innerHTML = tileHtml(src, fav);
+				if (el.parentNode) { el.parentNode.replaceChild(wrap.firstChild, el); }
+			});
+		});
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Actions                                                            */
+	/* ------------------------------------------------------------------ */
+
+	function setLocal(cmdId, value) {
+		if (!cmdId) { return; }
+		var prev = S.values[cmdId] || {};
+		S.values[cmdId] = { id: cmdId, value: value, display: prev.display || String(value), unit: prev.unit || '' };
+		S.pending[cmdId] = { value: String(value), until: Date.now() + 8000 };
+		if (!S.dragging) { refreshTiles(); }
+	}
+
+	function exec(cmdId, value, optimistic) {
+		if (!cmdId) { return Promise.resolve(); }
+		if (optimistic) { setLocal(optimistic.id, optimistic.value); }
+		return api({ action: 'exec', cmd_id: cmdId, value: value === null || value === undefined ? '' : value })
+			.then(function () { setTimeout(poll, 250); })
+			.catch(function (e) {
+				toast('Échec : ' + e.message);
+				poll();
+			});
+	}
+
+	function toggle(t) {
+		var c = t.caps || {};
+		var on = isOn(t);
+		var cmdId = on ? c.off : c.on;
+		if (!cmdId) { cmdId = c.toggle; }
+		if (!cmdId) { toast('Aucune commande On/Off trouvée'); return; }
+		var stateId = c.state || (t.state && t.state.id);
+		haptic();
+		exec(cmdId, '', { id: stateId, value: on ? 0 : 1 });
+	}
+
+	function stepSetpoint(t, dir) {
+		var c = t.caps || {};
+		if (!c.setSetpoint) { return; }
+		var cur = num(val(c.setpoint) ? val(c.setpoint).value : null);
+		if (cur === null) { cur = 19; }
+		var next = Math.round((cur + (dir === 'plus' ? 0.5 : -0.5)) * 2) / 2;
+		next = Math.max(5, Math.min(30, next));
+		haptic();
+		exec(c.setSetpoint, next, { id: c.setpoint, value: next });
+	}
+
+	function onAct(t, el) {
+		var act = el.getAttribute('data-act');
+		var c = t.caps || {};
+		if (act === 'plus' || act === 'minus') {
+			stepSetpoint(t, act);
+		} else if (act === 'mode') {
+			var siblings = el.parentNode ? el.parentNode.querySelectorAll('.hb-mode') : [];
+			Array.prototype.forEach.call(siblings, function (p) {
+				p.classList.toggle('is-active', p === el);
+			});
+			haptic();
+			exec(el.getAttribute('data-cmd'), '');
+		} else if (act === 'up' || act === 'down' || act === 'stop') {
+			haptic();
+			exec(c[act], '');
+		}
+	}
+
+	function bind() {
+		root = document.getElementById('hb-root');
+		if (!root) { return false; }
+		API = root.getAttribute('data-api');
+		CFG_URL = root.getAttribute('data-config') || '';
+		EXIT_URL = root.getAttribute('data-exit') || '';
+
+		root.addEventListener('click', function (e) {
+			var nav = e.target.closest ? e.target.closest('.hb-nav__item') : null;
+			if (nav && nav.getAttribute('data-room')) {
+				var r = nav.getAttribute('data-room');
+				S.active = (r === 'all' || r === 'charts') ? r : Number(r);
+				markActive();
+				resetNavFollow();
+				paintSections();
+				window.scrollTo({ top: 0, behavior: 'smooth' });
+				scheduleNavFollow();
+				return;
+			}
+			var card = e.target.closest ? e.target.closest('.hb-chartcard') : null;
+			if (card) {
+				var ch = null;
+				S.charts.forEach(function (c) {
+					if (String(c.cmd_id) === card.getAttribute('data-chart')) { ch = c; }
+				});
+				if (ch) { openSheet(ch); }
+				return;
+			}
+			var el = e.target.closest ? e.target.closest('[data-tile]') : null;
+			if (!el) { return; }
+			if (press.fired) { press.fired = false; return; }
+			var t = S.tiles[el.getAttribute('data-tile')];
+			if (!t) { return; }
+			var actEl = e.target.closest('[data-act]');
+			if (actEl) { e.preventDefault(); onAct(t, actEl); return; }
+			if (t.kind === 'sensor') {
+				if (t.chart) {
+					openSheet({
+						cmd_id: t.chart.cmd_id, label: t.label, room: t.sub,
+						chart_label: t.chart.label, unit: t.chart.unit, value: t.state.value,
+						tile_id: t.id, icon: t.icon
+					});
+				} else {
+					openDetail(t);
+				}
+				return;
+			}
+			if (t.kind === 'thermostat' || t.kind === 'camera' || t.kind === 'shutter') {
+				openDetail(t);
+				return;
+			}
+			toggle(t);
+		});
+
+		root.addEventListener('keydown', function (e) {
+			if (e.key !== 'Enter' && e.key !== ' ') { return; }
+			var el = e.target.closest ? e.target.closest('[data-tile]') : null;
+			if (!el || e.target.closest('.hb-bri')) { return; }
+			e.preventDefault();
+			var t = S.tiles[el.getAttribute('data-tile')];
+			if (t && t.kind !== 'thermostat' && t.kind !== 'sensor') { toggle(t); }
+		});
+
+		window.addEventListener('scroll', scheduleNavFollow, { passive: true });
+		window.addEventListener('resize', scheduleNavFollow, { passive: true });
+
+		document.addEventListener('keydown', function (e) {
+			if (e.key === 'Escape') { closeSheet(); }
+		});
+
+		/* Appui long (480 ms) => feuille de détail ; appui court => on/off */
+		var press = { timer: null, x: 0, y: 0, fired: false };
+
+		root.addEventListener('pointerdown', function (e) {
+			if (!e.target.closest) { return; }
+			var el = e.target.closest('[data-tile]');
+			if (!el || e.target.closest('[data-act]')) { return; }
+			press.x = e.clientX;
+			press.y = e.clientY;
+			press.fired = false;
+			clearTimeout(press.timer);
+			press.timer = setTimeout(function () {
+				press.fired = true;
+				haptic(18);
+				var t = S.tiles[el.getAttribute('data-tile')];
+				if (t) { openDetail(t); }
+			}, 480);
+		});
+
+		root.addEventListener('pointermove', function (e) {
+			if (!press.timer) { return; }
+			if (Math.abs(e.clientX - press.x) > 12 || Math.abs(e.clientY - press.y) > 12) {
+				clearTimeout(press.timer);
+				press.timer = null;
+			}
+		});
+
+		root.addEventListener('pointerup', function () {
+			clearTimeout(press.timer);
+			press.timer = null;
+		});
+
+		root.addEventListener('pointercancel', function () {
+			clearTimeout(press.timer);
+			press.timer = null;
+			press.fired = false;
+		});
+
+		return true;
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Synchronisation                                                    */
+	/* ------------------------------------------------------------------ */
+
+	function collectIds() {
+		var out = {};
+		S.rooms.forEach(function (r) {
+			r.tiles.forEach(function (t) {
+				var c = t.caps || {};
+				[c.state, c.bri, c.temp, c.setpoint, (t.state && t.state.id)].forEach(function (id) {
+					if (id) { out[id] = 1; }
+				});
+			});
+		});
+		return Object.keys(out);
+	}
+
+	function status(ok) {
+		var dot = document.getElementById('hb-dot');
+		var txt = document.getElementById('hb-foot-txt');
+		if (!dot) { return; }
+		dot.classList.toggle('is-stale', !ok);
+		if (txt) { txt.textContent = ok ? 'Synchronisé' : 'Hors ligne — nouvelle tentative…'; }
+	}
+
+	function poll() {
+		if (document.hidden) { return; }
+		var ids = collectIds();
+		if (!ids.length) { return; }
+		api({ action: 'values', ids: ids.join(',') }).then(function (vals) {
+			var changed = false;
+			Object.keys(vals).forEach(function (id) {
+				var a = S.values[id];
+				var b = vals[id];
+				var p = S.pending[id];
+				if (p) {
+					if (String(b.value) === p.value) { delete S.pending[id]; }
+					else if (Date.now() < p.until) { return; }
+					else { delete S.pending[id]; }
+				}
+				if (!a || String(a.value) !== String(b.value) || String(a.display) !== String(b.display)) {
+					S.values[id] = b;
+					changed = true;
+				}
+			});
+			status(true);
+			var sum = document.getElementById('hb-summary');
+			if (sum) { sum.textContent = summary(); }
+			if (changed) { refreshTiles(); }
+			if (S.sheet && S.sheet.kind === 'detail') { refreshDetail(); }
+		}).catch(function () { status(false); });
+	}
+
+	function schedule() {
+		clearInterval(S.timer);
+		S.timer = setInterval(poll, Math.max(2, Number(S.home.refresh) || 3) * 1000);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Démarrage                                                          */
+	/* ------------------------------------------------------------------ */
+
+	function indexTiles() {
+		S.tiles = {};
+		S.rooms.forEach(function (r) {
+			r.tiles.forEach(function (t) { S.tiles[String(t.id)] = t; });
+		});
+	}
+
+	function seedValues() {
+		S.rooms.forEach(function (r) {
+			r.tiles.forEach(function (t) {
+				var c = t.caps || {};
+				if (t.state && t.state.id) { S.values[t.state.id] = t.state; }
+				if (t.extra) {
+					Object.keys(t.extra).forEach(function (k) {
+						var id = c[k];
+						if (id) { S.values[id] = t.extra[k]; }
+					});
+				}
+			});
+		});
+	}
+
+	function boot() {
+		if (!bind()) { return; }
+		api({ action: 'layout' }).then(function (data) {
+			S.rooms = data.rooms || [];
+			S.favorites = data.favorites || [];
+			S.charts = data.charts || [];
+			S.favById = {};
+			S.favorites.forEach(function (t) { S.favById[String(t.id)] = t; });
+			S.home = data.home || S.home;
+			indexTiles();
+			seedValues();
+			buildShell();
+			paintNav();
+			paintHead();
+			paintSections();
+			schedule();
+			poll();
+		}).catch(function (e) {
+			root.innerHTML = '<div class="hb-empty" style="margin:24px">Impossible de charger le tableau de bord.<br>' +
+				esc(e.message) + '</div>';
+		});
+
+		document.addEventListener('visibilitychange', function () {
+			if (!document.hidden) { poll(); }
+		});
+
+		setInterval(function () {
+			var c = document.getElementById('hb-clock');
+			if (!c) { return; }
+			var now = new Date();
+			c.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			var d = document.getElementById('hb-date');
+			if (d) { d.textContent = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); }
+			var sum = document.getElementById('hb-summary');
+			if (sum) { sum.textContent = summary(); }
+		}, 20000);
+
+		window.addEventListener('beforeinstallprompt', function (e) {
+			e.preventDefault();
+			S.installEvent = e;
+			if (headEl) { paintHead(); }
+		});
+	}
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', boot);
+	} else {
+		boot();
+	}
+})();

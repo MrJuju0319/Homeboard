@@ -1,0 +1,34 @@
+{
+  "id": "homeboard",
+  "name": "Homeboard",
+  "description": {
+    "fr_FR": "Tableau de bord domotique façon Maison (Apple Home / Google Home) : pièces, tuiles de commandes configurables, application mobile installable (PWA).",
+    "en_US": "Home dashboard (Apple Home / Google Home style): rooms, configurable command tiles, installable mobile app (PWA)."
+  },
+  "utilization": "Ajoutez vos pièces puis vos tuiles (une commande Jeedom pilote une tuile : lumière, thermostat, sonde, volet, prise). Ouvrez ensuite le tableau de bord et installez-le sur votre téléphone depuis le navigateur.",
+  "licence": "AGPL",
+  "author": "Julien Bellier",
+  "require": "4.4",
+  "category": "organization",
+  "version": "0.2.1",
+  "changelog": "",
+  "documentation": "",
+  "language": [
+    "fr_FR",
+    "en_US"
+  ],
+  "compatibility": [
+    "miniplus",
+    "smart",
+    "atlas",
+    "rpi",
+    "docker",
+    "DIY",
+    "luna",
+    "NAS",
+    "virtual"
+  ],
+  "hasDependency": false,
+  "hasOwnDeamon": false,
+  "maxDependancyInstallTime": 0
+}
