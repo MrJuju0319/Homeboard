@@ -1026,7 +1026,12 @@ class homeboard extends eqLogic {
 
 	public static function getLayout() {
 		$rooms = self::rooms(false);
-		$tiles = self::tiles();
+		/* Source unique : les tuiles accessibles. Ce que l'écran affiche et ce
+		   que l'API autorise doivent être la même liste, sinon un bouton peut
+		   apparaître sans pouvoir être exécuté (ou l'inverse). Une tuile sans
+		   pièce, ou d'une pièce masquée, n'apparaît donc nulle part — et
+		   n'ouvre aucun droit. */
+		$tiles = self::accessibleTiles();
 		$byRoom = array();
 		foreach ($tiles as $t) {
 			$byRoom[(int) $t['room_id']][] = $t;
@@ -1073,40 +1078,6 @@ class homeboard extends eqLogic {
 				}
 			}
 			$out[] = $room;
-		}
-		/* Tuiles orphelines (pièce supprimée / non assignée) : elles doivent
-		   aussi alimenter les favoris et les graphiques, sinon une tuile mise
-		   en favori sans pièce n'apparaît nulle part. */
-		if (!empty($byRoom[0])) {
-			$orphan = array('id' => 0, 'name' => 'Autres', 'icon' => 'home', 'tiles' => array());
-			foreach ($byRoom[0] as $row) {
-				$tile = self::buildTile($row);
-				if ($tile === null) {
-					continue;
-				}
-				$orphan['tiles'][] = $tile;
-				if ($tile['favorite']) {
-					$tile['room_name'] = 'Autres';
-					$favorites[] = $tile;
-				}
-				if (!empty($tile['chart']) && !isset($charts[$tile['chart']['cmd_id']])) {
-					$chartObj = cmd::byId((int) $tile['chart']['cmd_id']);
-					$charts[$tile['chart']['cmd_id']] = array(
-						'tile_id' => $tile['id'],
-						'label' => $tile['label'],
-						'room' => 'Autres',
-						'icon' => $tile['icon'],
-						'kind' => $tile['kind'],
-						'cmd_id' => $tile['chart']['cmd_id'],
-						'chart_label' => $tile['chart']['label'],
-						'unit' => $tile['chart']['unit'] !== '' ? $tile['chart']['unit'] : $tile['state']['unit'],
-						'value' => is_object($chartObj) ? $chartObj->execCmd() : '',
-					);
-				}
-			}
-			if (!empty($orphan['tiles'])) {
-				$out[] = $orphan;
-			}
 		}
 		return array(
 			'home' => self::settings(),
@@ -1181,9 +1152,9 @@ class homeboard extends eqLogic {
 	   pilote — marche/arrêt, luminosité, consigne, modes, volets). Sans cette
 	   liste, un compte authentifié pouvait appeler exec() avec l'identifiant
 	   d'une commande d'action quelconque de la maison. */
-	public static function allowedActions() {
+	public static function allowedActions($_reload = false) {
 		static $cache = null;
-		if ($cache !== null) {
+		if ($cache !== null && !$_reload) {
 			return $cache;
 		}
 		$keys = array('on', 'off', 'toggle', 'briSet', 'colorSet', 'setSetpoint', 'up', 'down', 'stop', 'slider');

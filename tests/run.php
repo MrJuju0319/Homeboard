@@ -4,13 +4,15 @@
  *   php tests/run.php --pure   → logique pure, sans Jeedom (utilisable en CI)
  *   php tests/run.php          → tout, à exécuter sur l'hôte Jeedom
  *
- * Le second niveau crée puis supprime ses propres lignes (pièce masquée,
- * tuiles, scénario) : il ne modifie aucune donnée existante.
+ * Le second niveau crée ses propres lignes et ne supprime que celles-là, par
+ * identifiant exact : aucune suppression par préfixe, donc aucune donnée
+ * existante ne peut être touchée même si un test s'arrête au milieu.
  */
 
 $pure = in_array('--pure', $argv, true);
 $failed = 0;
 $passed = 0;
+$GLOBALS['hbTestIds'] = array('tile' => array(), 'room' => array(), 'scenario' => array());
 
 function check($_name, $_cond, $_detail = '') {
 	global $failed, $passed;
@@ -42,6 +44,31 @@ function containsTile($_tiles, $_id) {
 		}
 	}
 	return false;
+}
+
+/* Mémorise un identifiant créé par les tests, pour le supprimer à la fin. */
+function track($_kind, $_id) {
+	$GLOBALS['hbTestIds'][$_kind][] = (int) $_id;
+	return (int) $_id;
+}
+
+/* Index par identifiant, pour tester l'appartenance sans parcourir à la main. */
+function idSet($_items) {
+	$out = array();
+	foreach ((array) $_items as $it) {
+		$out[(int) $it['id']] = true;
+	}
+	return $out;
+}
+
+function allLayoutTiles($_layout) {
+	$out = array();
+	foreach ((array) $_layout['rooms'] as $r) {
+		foreach ($r['tiles'] as $t) {
+			$out[] = $t;
+		}
+	}
+	return $out;
 }
 
 echo "Homeboard — tests\n";
@@ -93,6 +120,8 @@ check('valeur sous le minimum remontée', homeboardPure::clampStep(1, 20, 30, 1)
 check('valeur au-dessus du maximum abaissée', homeboardPure::clampStep(150, 0, 100, 1) === 100.0, (string) homeboardPure::clampStep(150, 0, 100, 1));
 check('valeur déjà sur un pas inchangée', homeboardPure::clampStep(99, 0, 100, 1) === 99.0);
 check('pas de 0,5 respecté', homeboardPure::clampStep(19.3, 5, 30, 0.5) === 19.5, (string) homeboardPure::clampStep(19.3, 5, 30, 0.5));
+check('maximum hors grille : dernier cran valide', homeboardPure::clampStep(10, 5, 10, 3) === 8.0, (string) homeboardPure::clampStep(10, 5, 10, 3));
+check('maximum hors grille, demande au-delà', homeboardPure::clampStep(50, 5, 10, 3) === 8.0, (string) homeboardPure::clampStep(50, 5, 10, 3));
 check('sans pas : simple bornage', homeboardPure::clampStep(42, '', '', '') === 42.0);
 check('valeur non numérique refusée', homeboardPure::clampStep('abc', 0, 100, 1) === null);
 
@@ -123,18 +152,20 @@ if (!isset($_SESSION['user']) || !is_object($_SESSION['user'])) {
 	$_SESSION['user'] = $admin;
 }
 
-/* Nettoyage de sécurité : si le script s'arrête au milieu (exception, arrêt
-   manuel), les lignes ZZ créées par les tests ne doivent pas rester. */
+/* Nettoyage : uniquement les identifiants créés par ces tests, jamais une
+   suppression par préfixe (une tuile réelle pourrait s'appeler « ZZ… »). */
 register_shutdown_function(function () {
+	$ids = $GLOBALS['hbTestIds'];
 	try {
-		foreach ((array) DB::Prepare("SELECT id FROM homeboard_tile WHERE label LIKE 'ZZ %'", array(), DB::FETCH_TYPE_ALL) as $r) {
-			DB::Prepare('DELETE FROM homeboard_tile WHERE id = ?', array((int) $r['id']));
+		foreach ($ids['tile'] as $id) {
+			DB::Prepare('DELETE FROM homeboard_tile WHERE id = ?', array((int) $id));
 		}
-		foreach ((array) DB::Prepare("SELECT id FROM homeboard_room WHERE name LIKE 'ZZ %'", array(), DB::FETCH_TYPE_ALL) as $r) {
-			DB::Prepare('DELETE FROM homeboard_room WHERE id = ?', array((int) $r['id']));
+		foreach ($ids['room'] as $id) {
+			DB::Prepare('DELETE FROM homeboard_room WHERE id = ?', array((int) $id));
 		}
-		foreach ((array) scenario::all() as $s) {
-			if (strpos((string) $s->getName(), 'ZZ Homeboard') === 0) { $s->remove(); }
+		foreach ($ids['scenario'] as $id) {
+			$sc = scenario::byId((int) $id);
+			if (is_object($sc)) { $sc->remove(); }
 		}
 	} catch (Throwable $e) {
 		echo "  ...  nettoyage partiel : " . $e->getMessage() . "\n";
@@ -170,37 +201,83 @@ if ($stranger !== null) {
 	echo "  ...  aucune commande d'action hors tuiles sur cette installation\n";
 }
 
-echo "\n[8] Pièce masquée\n";
-$roomId = homeboard::saveRoom(array('name' => 'ZZ test masqué', 'icon' => 'home', 'pos' => 999, 'isVisible' => 0));
+echo "\n[8] Tableau de bord : une seule source de vérité\n";
 $cmdRow = DB::Prepare('SELECT cmd_id FROM homeboard_tile WHERE kind <> ? AND cmd_id > 0 LIMIT 1',
 	array('scene'), DB::FETCH_TYPE_ROW);
+$roomId = track('room', homeboard::saveRoom(array('name' => 'ZZ test masqué', 'icon' => 'home', 'pos' => 999, 'isVisible' => 0)));
+
 if (!is_array($cmdRow)) {
 	echo "  ...  aucune tuile existante pour ce test\n";
-	DB::Prepare('DELETE FROM homeboard_room WHERE id = ?', array($roomId));
 } else {
-	$tileId = homeboard::saveTile(array(
+	$tileId = track('tile', homeboard::saveTile(array(
 		'id' => 0, 'room_id' => $roomId, 'cmd_id' => (int) $cmdRow['cmd_id'], 'kind' => 'switch',
-		'label' => 'ZZ tuile masquée', 'icon' => 'power', 'size' => 'normal', 'isFavorite' => 0, 'pos' => 999,
-	));
-	check('pièce masquée : tuile exclue', containsTile(homeboard::accessibleTiles(true), $tileId) === false);
-	DB::Prepare('UPDATE homeboard_room SET isVisible = 1 WHERE id = ?', array($roomId));
-	check('pièce visible : tuile incluse', containsTile(homeboard::accessibleTiles(true), $tileId) === true);
+		'label' => 'ZZ tuile masquée', 'icon' => 'power', 'size' => 'normal', 'isFavorite' => 1, 'pos' => 999,
+	)));
 
-	echo "\n[9] Scénarios\n";
+	homeboard::accessibleTiles(true);
+	$layout = homeboard::getLayout();
+	check('pièce masquée : tuile absente du tableau de bord', !isset(idSet(allLayoutTiles($layout))[$tileId]));
+	check('pièce masquée : tuile absente des favoris', !isset(idSet($layout['favorites'])[$tileId]));
+	check('pièce masquée : tuile hors du périmètre des droits', containsTile(homeboard::accessibleTiles(true), $tileId) === false);
+	$chartTiles = array();
+	foreach ($layout['charts'] as $ch) { $chartTiles[(int) $ch['tile_id']] = true; }
+	check('pièce masquée : tuile absente des graphiques', !isset($chartTiles[$tileId]));
+
+	DB::Prepare('UPDATE homeboard_room SET isVisible = 1 WHERE id = ?', array($roomId));
+	homeboard::accessibleTiles(true);
+	$layout = homeboard::getLayout();
+	check('pièce visible : tuile de retour dans le tableau de bord', isset(idSet(allLayoutTiles($layout))[$tileId]));
+	check('pièce visible : tuile de retour dans les favoris', isset(idSet($layout['favorites'])[$tileId]));
+
+	echo "\n[9] Tuile sans pièce\n";
+	$orphanId = track('tile', homeboard::saveTile(array(
+		'id' => 0, 'room_id' => 0, 'cmd_id' => (int) $cmdRow['cmd_id'], 'kind' => 'switch',
+		'label' => 'ZZ tuile orpheline', 'icon' => 'power', 'size' => 'normal', 'isFavorite' => 1, 'pos' => 999,
+	)));
+	homeboard::accessibleTiles(true);
+	$layout = homeboard::getLayout();
+	check('tuile sans pièce : absente du tableau de bord', !isset(idSet(allLayoutTiles($layout))[$orphanId]));
+	check('tuile sans pièce : absente des favoris', !isset(idSet($layout['favorites'])[$orphanId]));
+	$fake = 0;
+	foreach ($layout['rooms'] as $r) {
+		if ((int) $r['id'] === 0 || $r['name'] === 'Autres') { $fake++; }
+	}
+	check('aucune pièce virtuelle « Autres »', $fake === 0, (string) $fake);
+
+	/* Invariant central : tout ce qui est affiché doit être exécutable. */
+	homeboard::accessibleTiles(true);
+	$allowed = homeboard::allowedActions(true);
+	$missing = array();
+	foreach (allLayoutTiles($layout) as $t) {
+		if ($t['kind'] === 'scene') { continue; }
+		foreach (array('on', 'off', 'toggle', 'briSet', 'colorSet', 'setSetpoint', 'up', 'down', 'stop', 'slider') as $k) {
+			if (!empty($t['caps'][$k]) && !isset($allowed[(int) $t['caps'][$k]])) {
+				$missing[] = $t['label'] . '/' . $k;
+			}
+		}
+		foreach ((array) (isset($t['caps']['modes']) ? $t['caps']['modes'] : array()) as $m) {
+			if (!empty($m['id']) && !isset($allowed[(int) $m['id']])) {
+				$missing[] = $t['label'] . '/mode';
+			}
+		}
+	}
+	check('tout ce qui est affiché est exécutable', empty($missing), implode(', ', array_slice($missing, 0, 5)));
+
+	echo "\n[10] Scénarios\n";
 	$sc = new scenario();
 	$sc->setName('ZZ Homeboard test');
 	$sc->setIsActive(1);
 	$sc->setMode('provoke');
 	$sc->save();
-	$scId = (int) $sc->getId();
+	$scId = track('scenario', $sc->getId());
 	check('scénario non tuilé : lancement refusé', throwsSomething(function () use ($scId) {
 		homeboard::runScenario($scId);
 	}));
 	check('scénario non tuilé : état non retourné', homeboard::scenarioStates(array($scId)) === array());
-	$scTile = homeboard::saveTile(array(
+	$scTile = track('tile', homeboard::saveTile(array(
 		'id' => 0, 'room_id' => $roomId, 'scenario_id' => $scId, 'kind' => 'scene',
 		'label' => 'ZZ scène', 'icon' => 'play', 'size' => 'normal', 'isFavorite' => 0, 'pos' => 999,
-	));
+	)));
 	homeboard::accessibleTiles(true);
 	$ran = false;
 	try {
@@ -212,7 +289,7 @@ if (!is_array($cmdRow)) {
 	check('scénario tuilé : lancement accepté', $ran === true);
 	check('scénario tuilé : état retourné', isset(homeboard::scenarioStates(array($scId))[$scId]));
 
-	echo "\n[10] Enregistrement en masse\n";
+	echo "\n[11] Enregistrement en masse\n";
 	$res = homeboard::saveTilesBulk(json_encode(array(
 		array('id' => $tileId, 'kind' => 'button'),
 		array('id' => $tileId, 'label' => 'ZZ tuile masquée'),
@@ -222,16 +299,11 @@ if (!is_array($cmdRow)) {
 	$row = DB::Prepare('SELECT kind, cmd_id FROM homeboard_tile WHERE id = ?', array($tileId), DB::FETCH_TYPE_ROW);
 	check('la tuile refusée garde type et commande', $row['kind'] === 'switch' && (int) $row['cmd_id'] === (int) $cmdRow['cmd_id'], json_encode($row));
 
-	echo "\n[11] Pièces\n";
-	$pid = homeboard::saveRoom(array('name' => str_repeat('P', 300), 'icon' => 'evil', 'pos' => 998, 'isVisible' => 1));
+	echo "\n[12] Pièces\n";
+	$pid = track('room', homeboard::saveRoom(array('name' => str_repeat('P', 300), 'icon' => 'evil', 'pos' => 998, 'isVisible' => 1)));
 	$row = DB::Prepare('SELECT name, icon FROM homeboard_room WHERE id = ?', array($pid), DB::FETCH_TYPE_ROW);
 	check('nom borné à 191 caractères', mb_strlen($row['name']) === 191, (string) mb_strlen($row['name']));
 	check('icône hors liste remplacée', $row['icon'] === 'home', (string) $row['icon']);
-
-	DB::Prepare('DELETE FROM homeboard_tile WHERE id IN (?, ?)', array($tileId, $scTile));
-	DB::Prepare('DELETE FROM homeboard_room WHERE id IN (?, ?)', array($roomId, $pid));
-	$sc = scenario::byId($scId);
-	if (is_object($sc)) { $sc->remove(); }
 }
 
 echo "\n$passed test(s) passé(s), $failed échec(s)\n";

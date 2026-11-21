@@ -126,7 +126,10 @@ class homeboardPure {
 	}
 
 	/* Valeur d'un curseur ramenée dans les bornes et alignée sur le pas, côté
-	   serveur : l'interface arrondit déjà, mais elle n'est pas la sécurité. */
+	   serveur : l'interface arrondit déjà, mais elle n'est pas la sécurité.
+	   La borne haute doit rester sur la grille du pas : avec min=5, max=10 et
+	   pas=3, les valeurs possibles sont 5 et 8 — borner 11 à 10 donnerait une
+	   valeur que l'appareil n'accepte pas. */
 	public static function clampStep($_value, $_min, $_max, $_step) {
 		if (!is_numeric($_value)) {
 			return null;
@@ -141,13 +144,15 @@ class homeboardPure {
 			$v = $max;
 		}
 		if (is_numeric($_step) && (float) $_step > 0) {
+			$step = (float) $_step;
 			$base = ($min !== null) ? $min : 0.0;
-			$v = $base + round(($v - $base) / (float) $_step) * (float) $_step;
-			if ($min !== null && $v < $min) {
-				$v = $min;
-			}
+			$v = $base + round(($v - $base) / $step) * $step;
 			if ($max !== null && $v > $max) {
-				$v = $max;
+				/* Dernier cran réellement dans les bornes. */
+				$v = $base + floor(($max - $base) / $step) * $step;
+			}
+			if ($min !== null && $v < $min) {
+				$v = $base + ceil(($min - $base) / $step) * $step;
 			}
 			$v = round($v, 4);
 		}

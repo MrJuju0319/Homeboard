@@ -209,6 +209,12 @@ propre bloc de réglages.
   numéro venu du navigateur au moment de l'exécution.
 - Les écritures d'administration exigent `isConnect('admin')` ; l'exécution
   vérifie `$eqLogic->hasRight('x')` et l'affichage filtre sur `hasRight('r')`.
+- En **lecture**, `values()` et `history()` s'appuient sur le droit Jeedom `r`
+  de la commande, pas sur son appartenance à une tuile. C'est un choix : un
+  compte qui possède déjà ce droit peut lire la commande dans Jeedom lui-même,
+  donc Homeboard n'ouvre rien de plus ; et les widgets du mode mur comme les
+  courbes utilisent des commandes qui ne sont pas forcément sur une tuile. Ce
+  sont les **actions** qui sont bornées par l'écran, pas les lectures.
   Sans droit d'exécution, la tuile est grisée et la commande ne part pas.
 - La CSP de la PWA est stricte (aucun script ni style inline, pas d'`eval`,
   `object-src 'none'`, `form-action 'self'`) : le peu de style dynamique passe
