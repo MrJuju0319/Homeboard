@@ -177,10 +177,10 @@ register_shutdown_function(function () {
 			if (is_object($sc)) { $sc->remove(); }
 		}
 		foreach ($ids['board'] as $id) {
-			$b = DB::Prepare('SELECT id FROM homeboard_board WHERE id = ?', array((int) $id), DB::FETCH_TYPE_ROW);
-			if (is_array($b)) {
-				DB::Prepare('DELETE FROM homeboard_tile WHERE board_id = ?', array((int) $id));
-				DB::Prepare('DELETE FROM homeboard_board WHERE id = ?', array((int) $id));
+			$eq = eqLogic::byId((int) $id);
+			if (is_object($eq) && $eq->getEqType_name() === 'homeboard') {
+				DB::Prepare('DELETE FROM homeboard_tile WHERE eq_id = ?', array((int) $id));
+				$eq->remove();
 			}
 		}
 	} catch (Throwable $e) {
@@ -356,7 +356,7 @@ if (is_array($cmdRow)) {
 	/* Depuis le tableau de test, une tuile du tableau par défaut ne doit être
 	   ni modifiable ni supprimable : sinon un identifiant suffirait à sortir de
 	   son périmètre. */
-	$foreign = DB::Prepare('SELECT id FROM homeboard_tile WHERE board_id = ? LIMIT 1', array($defId), DB::FETCH_TYPE_ROW);
+	$foreign = DB::Prepare('SELECT id FROM homeboard_tile WHERE eq_id = ? LIMIT 1', array($defId), DB::FETCH_TYPE_ROW);
 	check('modification croisée refusée', throwsSomething(function () use ($foreign, $b2) {
 		homeboard::useBoard($b2);
 		homeboard::saveTile(array('id' => (int) $foreign['id'], 'label' => 'détournement'));
@@ -369,7 +369,7 @@ if (is_array($cmdRow)) {
 
 homeboard::useBoard($b2);
 homeboard::deleteBoard($b2);
-check('les tuiles du tableau supprimé disparaissent', count(DB::Prepare('SELECT id FROM homeboard_tile WHERE board_id = ?', array($b2), DB::FETCH_TYPE_ALL)) === 0);
+check('les tuiles du tableau supprimé disparaissent', count(DB::Prepare('SELECT id FROM homeboard_tile WHERE eq_id = ?', array($b2), DB::FETCH_TYPE_ALL)) === 0);
 check('suppression d un tableau inexistant refusée', throwsSomething(function () {
 	homeboard::deleteBoard(999999);
 }));

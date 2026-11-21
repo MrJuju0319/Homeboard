@@ -24,9 +24,11 @@ $cfgUrl = '../../../index.php?v=d&p=plugin&id=homeboard';
    l'API retombe sur le tableau par défaut, l'affichage reste cohérent. */
 $boardSlug = '';
 if (isset($_GET['b']) && $_GET['b'] !== '') {
-	$row = DB::Prepare('SELECT slug FROM homeboard_board WHERE slug = ?', array((string) $_GET['b']), DB::FETCH_TYPE_ROW);
-	if (is_array($row)) {
-		$boardSlug = (string) $row['slug'];
+	/* Un tableau est un équipement Jeedom : on résout par slug ou par id. Une
+	   valeur inconnue laisse la main au tableau par défaut. */
+	$hbBoard = homeboard::board((string) $_GET['b']);
+	if (is_array($hbBoard) && !empty($hbBoard['slug'])) {
+		$boardSlug = (string) $hbBoard['slug'];
 	}
 }
 ?>

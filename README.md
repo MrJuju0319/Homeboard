@@ -6,9 +6,10 @@ aucun build : PHP + JS natif.
 
 ## Fonctionnalités
 
-- **Tableaux de bord multiples** : chaque tableau a ses propres tuiles et son
-  propre comportement de veille (mur du salon, téléphone, tableau technique).
-  Voir « Plusieurs tableaux de bord ».
+- **Tableaux de bord multiples** : chaque tableau est un **équipement Jeedom**
+  (type `homeboard`) avec son nom, son objet parent, son état actif/visible, ses
+  propres tuiles et son propre comportement de veille. Voir « Plusieurs tableaux
+  de bord ».
 - **Pièces** = onglets du tableau de bord (icône, ordre, visibilité). Les pièces
   sont communes à tous les tableaux, les tuiles non.
 - **Tuiles** pilotées par une seule commande Jeedom ; le plugin retrouve seul les
@@ -110,30 +111,45 @@ aucun build : PHP + JS natif.
 
 ## Plusieurs tableaux de bord
 
-Une installation peut avoir plusieurs tableaux indépendants : un écran mural au
-salon, un tableau simplifié sur téléphone, un tableau technique. Les **pièces**
-sont communes (ce sont des objets Jeedom) ; les **tuiles** appartiennent à un
-tableau et le **voile de veille** (activation, délai, OLED, widgets) est réglé
-par tableau — le mur du salon peut s'endormir sans que le téléphone suive.
+Un tableau de bord **est un équipement Jeedom**. On le crée, le duplique et le
+supprime comme n'importe quel équipement, depuis la page du plugin :
 
-- Configuration → fieldset « Tableaux de bord » : choisir le tableau courant,
-  en créer un, le renommer, le supprimer. Les champs des fieldsets suivants
-  (pièces, tuiles, voile) portent alors sur ce tableau.
-- Chaque tableau a un **slug** stable (le renommage ne le change pas) et une
-  adresse propre : `plugins/homeboard/pwa/index.php?b=<slug>`. C'est cette URL
-  qu'on installe sur l'écran concerné.
-- L'adresse sans paramètre sert le tableau **par défaut**. Un slug inconnu
-  retombe aussi sur le tableau par défaut : un lien périmé affiche encore
-  quelque chose au lieu d'une page vide.
-- Le slug est **aussi un périmètre de droits** : les commandes exécutables sont
-  celles des tuiles accessibles *du tableau courant*, et une tuile d'un autre
-  tableau ne peut être ni modifiée ni supprimée en changeant l'identifiant
-  envoyé à l'API.
-- Créer un tableau ne recopie rien : il démarre vide, ses tuiles s'ajoutent
-  depuis sa propre configuration. Une même commande peut figurer sur plusieurs
-  tableaux.
-- Le dernier tableau ne peut pas être supprimé ; supprimer un tableau supprime
-  ses tuiles, jamais les pièces.
+```
+Plugins → Homeboard → Mes tableaux de bord
+index.php?v=d&p=homeboard&m=homeboard
+```
+
+Chaque tableau porte :
+
+- **Paramètres généraux** — nom, objet parent, actif, visible, commentaire : les
+  champs standards de Jeedom, enregistrés par le bouton « Sauvegarder ».
+- **Adresse du tableau** — `plugins/homeboard/pwa/index.php?b=<slug>`, c'est
+  l'adresse qu'on installe sur l'écran concerné. `?b=<id>` fonctionne aussi.
+  Sans paramètre, l'adresse sert le premier tableau créé ; un slug inconnu y
+  retombe également, pour qu'un lien périmé affiche encore quelque chose.
+- **Mode mur** — activation, délai de veille, anti-marquage OLED, widgets : ce
+  réglage appartient au tableau, donc le mur du salon peut s'endormir sans que
+  le téléphone suive.
+- **Tuiles / Scènes / Import** — la sélection de commandes de ce tableau. Les
+  pièces sont communes à tous les tableaux ; une même commande peut figurer sur
+  plusieurs tableaux.
+
+Le **slug** est calculé au premier enregistrement à partir du nom et ne change
+plus ensuite : renommer le tableau ne casse pas les adresses déjà installées.
+
+Le **périmètre des droits** suit le tableau : les commandes exécutables sont
+celles des tuiles accessibles du tableau courant, et une tuile d'un autre tableau
+ne peut être ni modifiée ni supprimée en changeant l'identifiant envoyé à l'API.
+Un tableau **désactivé** n'est plus servi à son adresse.
+
+Le plugin n'a plus de configuration propre pour les tableaux : la page
+`Configuration` du plugin ne garde que ce qui est commun (nom de la maison,
+horloge, rythme de rafraîchissement) et les pièces.
+
+> Migration depuis une version antérieure à 0.6 : les tableaux qui vivaient dans
+> la table `homeboard_board` sont convertis en équipements au premier chargement,
+> et la table d'origine est renommée `homeboard_board_old` (jamais supprimée
+> d'office). Elle peut être effacée une fois les tableaux vérifiés.
 
 ## Scènes et boutons
 

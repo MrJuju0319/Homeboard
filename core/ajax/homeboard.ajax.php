@@ -63,8 +63,8 @@ try {
 	   complète (schéma + hôte + port effectif) doit correspondre à la requête.
 	   En cas de doute, on refuse : une écriture rejetée à tort se retente,
 	   une écriture acceptée à tort ne se rattrape pas. */
-	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile',
-		'saveTiles', 'deleteTile', 'import', 'saveBoard', 'deleteBoard', 'selectBoard');
+	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveRoom', 'deleteRoom', 'saveTile',
+		'saveTiles', 'deleteTile', 'import');
 	if (in_array($action, $writeActions, true)) {
 		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
 		$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
@@ -86,9 +86,8 @@ try {
 		}
 	}
 
-	$adminActions = array('saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
-		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios', 'saveBoard', 'deleteBoard',
-		'selectBoard');
+	$adminActions = array('saveSettings', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
+		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios');
 	if (in_array($action, $adminActions, true) && !isConnect('admin')) {
 		throw new Exception('401 Unauthorized - droits administrateur requis');
 	}
@@ -155,39 +154,9 @@ try {
 			ajax::success(homeboard::settings());
 			break;
 
-		case 'saveBoard':
-			$id = init('id', 0);
-			if ((int) $id > 0) {
-				homeboard::updateBoard(array('id' => $id, 'name' => init('name', ''), 'pos' => init('pos', 0)));
-				$saved = homeboard::board((int) $id);
-			} else {
-				$saved = homeboard::board((int) homeboard::createBoard(array('name' => init('name', ''))));
-			}
-			ajax::success($saved);
-			break;
-
 		/* Tableau affiché par la page de configuration. Jeedom rend cette page
 		   en AJAX : un paramètre d'URL ne survit pas au rechargement, on garde
 		   donc le choix côté serveur. */
-		case 'selectBoard':
-			config::save('adminBoard', (int) init('id', 0), homeboard::PLUGIN_ID);
-			ajax::success(array('id' => (int) init('id', 0)));
-			break;
-
-		case 'deleteBoard':
-			homeboard::deleteBoard(init('id', 0));
-			ajax::success(homeboard::boards());
-			break;
-
-		case 'saveWall':
-			ajax::success(homeboard::saveWall(array(
-				'wallMode' => init('wallMode', 0),
-				'wallOled' => init('wallOled', 0),
-				'wallDelay' => init('wallDelay', 2),
-				'wallWidgets' => init('wallWidgets', '[]'),
-			)));
-			break;
-
 		case 'saveRoom':
 			$id = homeboard::saveRoom(array(
 				'id' => init('id', 0),

@@ -1915,8 +1915,9 @@ body.hb-standalone #hb-root {
 	font-family: SFMono-Regular, Menlo, Consolas, monospace;
 	font-size: 12.5px;
 	padding: 6px 8px;
-	background: #f7f7f7;
-	border: 1px solid #e3e3e3;
+	/* Neutre : lisible sur le thème clair comme sur le thème sombre de Jeedom */
+	background: rgba(127, 127, 127, 0.12);
+	border: 1px solid rgba(127, 127, 127, 0.38);
 	border-radius: 4px;
 	display: inline-block;
 	word-break: break-all;
@@ -2039,4 +2040,18 @@ body.hb-standalone #hb-root {
 	font-size: 11px;
 	color: var(--hb-muted);
 	padding: 0 2px;
+}
+
+/* ---------- Cartes de la liste des tableaux de bord ---------- */
+
+.hb-board-icon {
+	font-size: 34px;
+	color: var(--hb-accent);
+}
+
+.hb-board-sub {
+	display: block;
+	font-size: 12px;
+	color: var(--hb-muted, #8a8a94);
+	margin-top: 2px;
 }
