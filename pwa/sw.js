@@ -1,25 +1,33 @@
 /* Homeboard — service worker.
-   Portée volontairement étroite : uniquement le shell de l'application et les
-   ressources du plugin. Aucune donnée d'équipement n'est mise en cache.
+   Portée volontairement étroite : uniquement les ressources du plugin. Aucune
+   donnée d'équipement n'est mise en cache.
    CacheStorage étant partagé par toute l'origine, on ne touche qu'aux caches
    nommés « homeboard-* » : jamais ceux de Jeedom ni d'une autre application. */
-var CACHE = 'homeboard-shell-v3';
+var CACHE = 'homeboard-shell-v4';
 var PREFIX = 'homeboard-';
+
+/* Seules des ressources statiques sont précachées. Le shell PHP n'est jamais
+   précaché : une réponse de page de connexion (session expirée) ou une erreur
+   PHP se retrouverait sinon servie hors ligne à la place du tableau de bord. */
 var ASSETS = [
-	'./index.php',
-	'./manifest.php',
 	'./icons/icon-192.png',
 	'./icons/icon-512.png'
 ];
 
-/* Une réponse redirigée (session Jeedom expirée → page de login) ou en erreur
-   ne doit JAMAIS entrer dans le cache. */
-function putSafe(req, res) {
+/* Une réponse redirigée (session Jeedom expirée → page de login), en erreur, ou
+   d'un autre type que celui attendu ne doit JAMAIS entrer dans le cache. */
+function putSafe(req, res, wantHtml) {
 	if (!res || !res.ok || res.redirected || res.type === 'opaqueredirect') {
 		return;
 	}
+	if (wantHtml) {
+		var ct = (res.headers.get('content-type') || '').toLowerCase();
+		if (ct.indexOf('text/html') === -1) {
+			return;
+		}
+	}
 	var copy = res.clone();
-	caches.open(CACHE).then(function (c) { c.put(req, copy); });
+	caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
 }
 
 function matchOwn(req) {
@@ -29,7 +37,9 @@ function matchOwn(req) {
 self.addEventListener('install', function (e) {
 	e.waitUntil(
 		caches.open(CACHE).then(function (c) {
-			return c.addAll(ASSETS).catch(function () {});
+			return Promise.all(ASSETS.map(function (u) {
+				return c.add(u).catch(function () { return null; });
+			}));
 		}).then(function () { return self.skipWaiting(); })
 	);
 });
@@ -76,15 +86,16 @@ self.addEventListener('fetch', function (e) {
 		return;
 	}
 
-	/* Shell PHP du plugin : réseau d'abord, cache en secours */
+	/* Shell PHP du plugin : réseau d'abord, cache en secours. On ne garde que
+	   la page réellement demandée et seulement si c'est du HTML non redirigé. */
 	if (/\.php$/.test(url.pathname)) {
 		e.respondWith(
 			fetch(e.request).then(function (r) {
-				putSafe(e.request, r);
+				putSafe(e.request, r, true);
 				return r;
 			}).catch(function () {
 				return matchOwn(e.request).then(function (m) {
-					return m || matchOwn(new Request('./index.php'));
+					return m || Response.error();
 				});
 			})
 		);

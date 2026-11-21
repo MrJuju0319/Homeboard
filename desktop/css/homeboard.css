@@ -397,6 +397,18 @@ body.hb-standalone {
 	font-style: italic;
 }
 
+/* Mesure d'ambiance trop ancienne : bordure pointillée discrète et âge en
+   ambre. Le mot « périmé » porte l'information, la couleur ne fait que
+   l'accompagner. */
+.hb-tile.is-stale {
+	border-style: dotted;
+	border-color: var(--hb-accent-line);
+}
+
+.hb-tile.is-stale .hb-tile__age {
+	color: var(--hb-accent);
+}
+
 .hb-tile__age {
 	margin-top: 1px;
 	font-size: 10px;

@@ -16,6 +16,25 @@
  * along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* Jeedom n'expose pas d'aide pour le schéma réel de la requête (proxy
+   jeedom.link, reverse proxy local). On lit donc l'en-tête du proxy en premier,
+   puis la connexion elle-même. */
+function hbRequestScheme() {
+	if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+		$proto = strtolower(trim(current(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_PROTO']))));
+		if ($proto === 'https' || $proto === 'http') {
+			return $proto;
+		}
+	}
+	if (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off') {
+		return 'https';
+	}
+	if (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443) {
+		return 'https';
+	}
+	return 'http';
+}
+
 try {
 	require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
 	include_file('core', 'authentification', 'php');
@@ -34,25 +53,35 @@ try {
 
 	/* Défense CSRF complémentaire : Jeedom 4.4+ n'expose plus de jeton CSRF
 	   (ajax::getToken() renvoie ''), on s'appuie donc sur POST + même origine.
-	   Un formulaire hostile d'un autre site n'a ni le bon Origin ni un
-	   Sec-Fetch-Site same-origin. */
+	   Contrôle strict : il faut au moins un des deux en-têtes, et l'origine
+	   complète (schéma + hôte + port effectif) doit correspondre à la requête.
+	   En cas de doute, on refuse : une écriture rejetée à tort se retente,
+	   une écriture acceptée à tort ne se rattrape pas. */
 	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile',
 		'saveTiles', 'deleteTile', 'import');
 	if (in_array($action, $writeActions, true)) {
 		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
+		$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+		if ($site === '' && $origin === '') {
+			throw new Exception('403 Contrôle d\'origine absent');
+		}
 		if ($site !== '' && !in_array($site, array('same-origin', 'none'), true)) {
 			throw new Exception('403 Requête cross-origin refusée');
 		}
-		$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+		$scheme = hbRequestScheme();
+		$host = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+		$h = parse_url($scheme . '://' . $host);
+		$hhost = (isset($h['host']) && $h['host'] !== '') ? strtolower($h['host']) : '';
+		if ($hhost === '') {
+			throw new Exception('403 Hôte de la requête illisible');
+		}
+		$hport = isset($h['port']) ? (int) $h['port'] : ($scheme === 'https' ? 443 : 80);
 		if ($origin !== '') {
 			$o = parse_url($origin);
+			$oscheme = isset($o['scheme']) ? strtolower($o['scheme']) : '';
 			$ohost = isset($o['host']) ? strtolower($o['host']) : '';
-			$oport = isset($o['port']) ? (int) $o['port'] : null;
-			$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
-			$h = parse_url('http://' . $host);
-			$hhost = isset($h['host']) ? strtolower($h['host']) : '';
-			$hport = isset($h['port']) ? (int) $h['port'] : null;
-			if ($ohost === '' || $ohost !== $hhost || ($oport !== null && $hport !== null && $oport !== $hport)) {
+			$oport = isset($o['port']) ? (int) $o['port'] : ($oscheme === 'https' ? 443 : 80);
+			if ($ohost === '' || $ohost !== $hhost || $oscheme !== $scheme || $oport !== $hport) {
 				throw new Exception('403 Origin invalide');
 			}
 		}
@@ -169,8 +198,7 @@ try {
 			break;
 
 		case 'saveTiles':
-			homeboard::saveTilesBulk(init('rows', ''));
-			ajax::success();
+			ajax::success(homeboard::saveTilesBulk(init('rows', '')));
 			break;
 
 		case 'deleteTile':

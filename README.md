@@ -127,6 +127,11 @@ ment. Deux cas sont distingués, sans aucun réglage :
   d'anormal, alors qu'une température figée depuis sept heures mérite un coup
   d'œil. L'âge vient de la date réelle de la dernière valeur Jeedom, pas de
   l'heure d'affichage.
+- **Mesure périmée** : pour les mesures d'ambiance (température, humidité,
+  pression, CO₂…), censées remonter régulièrement, un retard de plus de deux
+  heures passe la tuile en bordure pointillée ambre avec « périmé · il y a 8 h ».
+  Une puissance ou un état n'est jamais marqué périmé : il ne change que si
+  l'appareil change, et son âge reste purement informatif.
 
 Ce comportement suit les recommandations des guides de conception de panneaux
 muraux ([états multiples et péremption](https://artofstyleframe.com/blog/smart-home-dashboard-ui-design/),
@@ -167,12 +172,28 @@ propre bloc de réglages.
   seules autorisées en GET. `core/ajax/homeboard.ajax.php` appelle `ajax::init()`,
   qui refuse toute autre action demandée en GET.
 - En complément (Jeedom 4.4+ n'expose plus de jeton CSRF), chaque écriture
-  vérifie l'origine : `Sec-Fetch-Site` doit valoir `same-origin` et l'en-tête
-  `Origin`, quand il est présent, doit correspondre à l'hôte. Une page tierce ne
-  peut donc pas déclencher un équipement via une session ouverte.
+  vérifie l'origine **strictement** : il faut au moins un des deux en-têtes
+  (`Sec-Fetch-Site` ou `Origin`), `Sec-Fetch-Site` doit valoir `same-origin`
+  ou `none`, et l'origine complète — schéma, hôte et port effectif — doit
+  correspondre à la requête. Le schéma est lu dans `X-Forwarded-Proto` pour
+  fonctionner derrière le DNS Jeedom. En cas de doute, la requête est refusée.
+- Une commande n'est exécutable que si elle **appartient à une tuile** :
+  `allowedActions()` reconstruit la liste des commandes d'action que les tuiles
+  exposent (boutons, et capacités de la commande pilote : marche/arrêt,
+  luminosité, couleur, consigne, modes, volets). `exec()` refuse tout le reste,
+  même avec un droit Jeedom `x` sur l'équipement concerné.
+- Un scénario n'est lançable que s'il est **présent dans une tuile de scène**,
+  actif, si l'utilisateur a le droit `x` dessus et si les scénarios sont
+  autorisés dans Jeedom. `scenarioStates()` applique les mêmes filtres plus le
+  droit de lecture `r` : l'état d'un scénario non tuilé n'est jamais retourné.
 - La commande pilote d'une tuile doit être une commande **d'information** :
   `saveTile()` refuse une commande d'action, `adminData()` et `buildTile()`
   n'exécutent jamais une action (sinon l'action partait à l'affichage).
+- `saveTile()`, `saveTilesBulk()` et `importTiles()` partagent les mêmes
+  contrôles : les lignes d'un enregistrement en masse repassent une par une par
+  `saveTile()`, une ligne invalide est refusée seule (la réponse détaille
+  laquelle et pourquoi) et les champs absents gardent leur valeur — changer le
+  type d'une tuile ne peut plus la faire disparaître.
 - Les valeurs exécutées sont validées côté serveur : bornes `minValue`/`maxValue`
   pour un slider, liste `listValue` pour un select, format `#RRGGBB` pour une
   couleur, longueur bornée pour un message.
@@ -190,7 +211,10 @@ propre bloc de réglages.
   par le CSSOM.
 - Le service worker ne touche qu'aux caches `homeboard-*`, ne lit que le sien,
   n'intercepte que les URL du plugin et ne met jamais en cache une réponse
-  redirigée (session expirée).
+  redirigée (session expirée). Seules les ressources **statiques** sont
+  précachées (icônes) : le shell PHP n'est mis en cache qu'au chargement réel et
+  seulement si la réponse est bien du HTML, pour qu'une page de connexion ou une
+  erreur PHP ne puisse pas être servie à la place du tableau de bord.
 
 ## Notes techniques
 

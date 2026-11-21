@@ -148,17 +148,31 @@
 		return !v || v.value === null || v.value === undefined || v.value === '';
 	}
 
-	/* Âge de la dernière mesure. Affiché seulement sur les mesures (une lampe
-	   allumée depuis deux heures n'a pas « trop vieilli »), et seulement
-	   au-delà de dix minutes pour ne pas encombrer. */
-	function ageLabel(ts) {
-		if (!ts) { return ''; }
-		var s = Math.floor(Date.now() / 1000) - Number(ts);
+	/* Âge de la dernière mesure. Affiché seulement sur les mesures, et
+	   seulement au-delà de dix minutes pour ne pas encombrer. Une mesure
+	   d'ambiance (température, humidité) est censée remonter régulièrement :
+	   passé deux heures, elle est marquée comme périmée. Une puissance ou un
+	   état ne changent que si l'appareil change, donc leur âge reste
+	   informatif et n'est jamais signalé comme anormal. */
+	function ageLabel(v) {
+		if (!v || !v.ts) { return ''; }
+		var s = Math.floor(Date.now() / 1000) - Number(v.ts);
 		if (!isFinite(s) || s < 600) { return ''; }
-		if (s < 3600) { return 'il y a ' + Math.round(s / 60) + ' min'; }
-		var h = Math.floor(s / 3600);
-		if (h < 24) { return 'il y a ' + h + ' h'; }
-		return 'il y a ' + Math.floor(h / 24) + ' j';
+		var txt;
+		if (s < 3600) {
+			txt = 'il y a ' + Math.round(s / 60) + ' min';
+		} else if (s < 86400) {
+			txt = 'il y a ' + Math.floor(s / 3600) + ' h';
+		} else {
+			txt = 'il y a ' + Math.floor(s / 86400) + ' j';
+		}
+		return isStale(v) ? 'périmé · ' + txt : txt;
+	}
+
+	function isStale(v) {
+		if (!v || !v.ts || !Number(v.periodic)) { return false; }
+		var s = Math.floor(Date.now() / 1000) - Number(v.ts);
+		return isFinite(s) && s > 7200;
 	}
 
 	function num(v) {
@@ -526,8 +540,11 @@
 		/* Le thermostat affiche plusieurs valeurs : sa tuile a son propre rendu
 		   et ne reçoit pas la marque « inconnu » (le mode n'est pas la mesure). */
 		var unknown = !isAction && kind !== 'thermostat' && !!mainId && isUnknown(mainId);
+		var vMain = mainId ? val(mainId) : null;
+		var stale = !unknown && kind === 'sensor' && isStale(vMain);
 		var cls = 'hb-tile hb-tile--' + kind;
 		if (unknown) { cls += ' is-unknown'; }
+		if (stale) { cls += ' is-stale'; }
 		if (t.caps && t.caps.canExec === false) { cls += ' is-locked'; }
 		if (t.size === 'wide') { cls += ' hb-tile--wide'; }
 		if (t.size === 'tall') { cls += ' hb-tile--tall'; }
@@ -552,7 +569,7 @@
 			html += thermostatHtml(t, showRoom);
 		} else if (t.kind === 'sensor') {
 			var st = tileState(t);
-			var age = unknown ? '' : ageLabel(val(mainId) ? val(mainId).ts : 0);
+			var age = unknown ? '' : ageLabel(vMain);
 			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
 				(t.chart ? '<span class="hb-tile__hint">' + svg('chart') + '</span>' : '') + '</div>' +
 				'<div class="hb-tile__body">' +
@@ -573,10 +590,16 @@
 				var n = num(st2 ? st2.value : null);
 				sub = (n === null) ? '' : (n <= 0 ? 'Fermé' : (n >= 100 ? 'Ouvert' : fmt(n, 0) + ' %'));
 			} else {
-				sub = on ? 'Allumé' : 'Éteint';
+				/* Libellé venu du serveur quand il existe : « Présence »,
+				   « Absence », « Ouvert »… plutôt qu'un « Éteint » générique
+				   qui n'a aucun sens pour un capteur. */
+				sub = (st2 && st2.display) ? String(st2.display) : (on ? 'Allumé' : 'Éteint');
 			}
 			if (unknown) { sub = 'Aucune valeur'; badge = ''; }
-			if (showRoom && t.room_name) { sub = t.room_name; }
+			/* Vue « Tout » : la pièce ne doit pas remplacer l'état, sinon la
+			   tuile ne dit plus rien sur l'appareil. Les deux tiennent sur la
+			   ligne secondaire. */
+			if (showRoom && t.room_name) { sub = t.room_name + (sub ? ' · ' + sub : ''); }
 			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
 				'<span class="hb-tile__badge">' + esc(badge) + '</span></div>' +
 				'<div class="hb-tile__body"><div class="hb-tile__name">' + esc(t.label) + '</div>' +

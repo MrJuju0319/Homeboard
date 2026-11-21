@@ -23,6 +23,12 @@ class homeboard extends eqLogic {
 
 	const PLUGIN_ID = 'homeboard';
 
+	/* Longueur maximale d'un libellé de tuile ou de pièce (colonne varchar). */
+	const LABEL_MAX = 191;
+
+	/* Types de tuile admis, dans l'ordre où l'interface les propose. */
+	const KINDS = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera', 'button', 'scene');
+
 	/* ============================================================
 	 *  Base de données
 	 * ============================================================ */
@@ -296,8 +302,10 @@ class homeboard extends eqLogic {
 				$label = is_object($eq) ? $eq->getName() : $cmd->getName();
 			}
 		}
-		$label = mb_substr($label, 0, 191);
-		$icon = isset($_data['icon']) ? (string) $_data['icon'] : '';
+		/* Même limite que la colonne (191) et que saveRoom : un libellé trop
+		   long était tronqué par MySQL sans le dire. */
+		$label = mb_substr($label, 0, self::LABEL_MAX);
+		$icon = isset($_data['icon']) ? trim((string) $_data['icon']) : '';
 		if ($icon !== '' && !in_array($icon, self::iconList(), true)) {
 			$icon = '';
 		}
@@ -326,9 +334,8 @@ class homeboard extends eqLogic {
 	/* Types de tuile autorisés : la valeur est écrite dans un attribut class
 	   côté JavaScript, une chaîne libre serait une injection persistante. */
 	public static function validKind($_kind) {
-		$kinds = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera', 'button', 'scene');
 		$k = trim((string) $_kind);
-		return in_array($k, $kinds, true) ? $k : 'auto';
+		return in_array($k, self::KINDS, true) ? $k : 'auto';
 	}
 
 	private static function roomExists($_id) {
@@ -336,11 +343,27 @@ class homeboard extends eqLogic {
 		return is_array($row) && !empty($row);
 	}
 
+	/* Enregistrement en masse (glisser-déposer, renommage) : chaque ligne
+	   repasse par saveTile(), donc par exactement les mêmes contrôles que
+	   l'enregistrement d'une tuile seule. Les champs absents d'une ligne
+	   gardent leur valeur enregistrée — c'était le défaut : changer le type
+	   en bouton ou scénario laissait les identifiants à zéro et la tuile
+	   disparaissait du tableau de bord. Une ligne invalide est refusée seule,
+	   le reste est enregistré, et l'appelant reçoit le détail. */
 	public static function saveTilesBulk($_rows) {
 		$rows = json_decode($_rows, true);
 		if (!is_array($rows)) {
 			throw new Exception('Données invalides');
 		}
+		if (count($rows) > 500) {
+			throw new Exception('Trop de lignes à enregistrer (500 maximum)');
+		}
+		$stored = array();
+		foreach (self::tiles() as $t) {
+			$stored[(int) $t['id']] = $t;
+		}
+		$updated = 0;
+		$errors = array();
 		$db = DB::getConnection();
 		$db->beginTransaction();
 		try {
@@ -349,18 +372,31 @@ class homeboard extends eqLogic {
 					continue;
 				}
 				$id = (int) $row['id'];
-				$kind = self::validKind(isset($row['kind']) ? $row['kind'] : 'auto');
-				$size = (isset($row['size']) && in_array($row['size'], array('normal', 'wide', 'tall'), true)) ? $row['size'] : 'normal';
-				DB::Prepare('UPDATE homeboard_tile SET room_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
-					array((int) (isset($row['room_id']) ? $row['room_id'] : 0), trim((string) (isset($row['label']) ? $row['label'] : '')),
-						$kind, (string) (isset($row['icon']) ? $row['icon'] : ''),
-						$size, (int) (!empty($row['isFavorite'])), (int) (isset($row['pos']) ? $row['pos'] : 0), $id));
+				if (!isset($stored[$id])) {
+					$errors[] = 'Tuile ' . $id . ' introuvable';
+					continue;
+				}
+				$base = $stored[$id];
+				$merged = array('id' => $id);
+				foreach (array('room_id', 'cmd_id', 'scenario_id', 'label', 'kind', 'icon', 'size', 'isFavorite', 'pos') as $k) {
+					$merged[$k] = array_key_exists($k, $row) ? $row[$k] : $base[$k];
+				}
+				try {
+					self::saveTile($merged);
+					$updated++;
+				} catch (Exception $e) {
+					$errors[] = 'Tuile ' . $id . ' : ' . $e->getMessage();
+				}
 			}
 			$db->commit();
 		} catch (Exception $e) {
 			$db->rollBack();
 			throw $e;
+		} catch (Throwable $e) {
+			$db->rollBack();
+			throw $e;
 		}
+		return array('updated' => $updated, 'rejected' => count($errors), 'errors' => $errors);
 	}
 
 	/* ============================================================
@@ -784,8 +820,26 @@ class homeboard extends eqLogic {
 		return $out;
 	}
 
+	/* Scénario présent dans au moins une tuile de scène : c'est la seule
+	   permission qui autorise Homeboard à le lancer ou à lire son état. Un
+	   compte disposant du droit Jeedom « x » sur tous les scénarios ne doit pas
+	   pouvoir lancer n'importe lequel en changeant l'identifiant de la requête. */
+	private static function sceneTiled($_scenarioId) {
+		$id = (int) $_scenarioId;
+		if ($id <= 0) {
+			return false;
+		}
+		$row = DB::Prepare('SELECT id FROM homeboard_tile WHERE scenario_id = ? AND kind = ? LIMIT 1',
+			array($id, 'scene'), DB::FETCH_TYPE_ROW);
+		return is_array($row) && !empty($row);
+	}
+
 	public static function runScenario($_id) {
-		$sc = scenario::byId((int) $_id);
+		$id = (int) $_id;
+		if (!self::sceneTiled($id)) {
+			throw new Exception('403 Scénario non autorisé par Homeboard');
+		}
+		$sc = scenario::byId($id);
 		if (!is_object($sc)) {
 			throw new Exception('Scénario introuvable');
 		}
@@ -810,11 +864,16 @@ class homeboard extends eqLogic {
 		$out = array();
 		foreach ((array) $_ids as $id) {
 			$id = (int) $id;
-			if ($id <= 0) {
+			if ($id <= 0 || !self::sceneTiled($id)) {
 				continue;
 			}
 			$sc = scenario::byId($id);
 			if (!is_object($sc)) {
+				continue;
+			}
+			/* L'état d'un scénario est une information : droit de lecture
+			   obligatoire, même quand la tuile existe. */
+			if (method_exists($sc, 'hasRight') && !$sc->hasRight('r')) {
 				continue;
 			}
 			$out[$id] = array('state' => (string) $sc->getState(), 'display' => self::scenarioStateLabel($sc));
@@ -1074,6 +1133,11 @@ class homeboard extends eqLogic {
 				'display' => self::formatValue($cmd, $value),
 				'unit' => (string) $cmd->getUnite(),
 				'ts' => $stamp,
+				/* Mesure d'ambiance (température, humidité…) : elle est censée
+				   arriver régulièrement, donc une valeur ancienne est anormale.
+				   Une puissance ou un état, non : ils ne changent que si
+				   l'appareil change, et leur âge n'est qu'informatif. */
+				'periodic' => self::isPeriodic($cmd) ? 1 : 0,
 			);
 		}
 		return $out;
@@ -1083,8 +1147,87 @@ class homeboard extends eqLogic {
 	 *  Exécution
 	 * ============================================================ */
 
+	/* Commandes d'action que Homeboard a le droit d'exécuter : celles que ses
+	   propres tuiles exposent (boutons, et capacités dérivées de la commande
+	   pilote — marche/arrêt, luminosité, consigne, modes, volets). Sans cette
+	   liste, un compte authentifié pouvait appeler exec() avec l'identifiant
+	   d'une commande d'action quelconque de la maison. */
+	public static function allowedActions() {
+		static $cache = null;
+		if ($cache !== null) {
+			return $cache;
+		}
+		$keys = array('on', 'off', 'toggle', 'briSet', 'colorSet', 'setSetpoint', 'up', 'down', 'stop', 'slider');
+		$out = array();
+		foreach (self::tiles() as $row) {
+			$kind = self::validKind(isset($row['kind']) ? $row['kind'] : 'auto');
+			if ($kind === 'scene') {
+				continue;
+			}
+			$cmd = cmd::byId((int) $row['cmd_id']);
+			if (!is_object($cmd)) {
+				continue;
+			}
+			if ($kind === 'button') {
+				if ($cmd->getType() === 'action') {
+					$out[(int) $cmd->getId()] = true;
+				}
+				continue;
+			}
+			if ($cmd->getType() !== 'info') {
+				continue;
+			}
+			/* Une tuile « auto » est typée à l'affichage (kindFromGeneric) : la
+			   liste des commandes autorisées doit résoudre le même type, sinon
+			   toutes les tuiles automatiques perdraient leurs boutons. */
+			if ($kind === 'auto') {
+				$kind = self::kindFromGeneric($cmd->getGeneric_type(), $cmd->getSubType());
+			}
+			$caps = self::caps($cmd, $kind);
+			foreach ($keys as $k) {
+				if (empty($caps[$k])) {
+					continue;
+				}
+				$id = (int) $caps[$k];
+				$action = cmd::byId($id);
+				if (is_object($action) && $action->getType() === 'action') {
+					$out[$id] = true;
+				}
+			}
+			foreach ((array) (isset($caps['modes']) ? $caps['modes'] : array()) as $m) {
+				if (!empty($m['id'])) {
+					$out[(int) $m['id']] = true;
+				}
+			}
+		}
+		$cache = $out;
+		return $out;
+	}
+
+	/* Une mesure d'ambiance est censée remonter régulièrement ; une puissance
+	   ou un état ne changent que lorsque l'appareil change. Seules les
+	   premières peuvent donc être signalées comme périmées. */
+	private static function isPeriodic($_cmd) {
+		$gt = strtoupper(trim((string) $_cmd->getGeneric_type()));
+		if ($gt === '') {
+			$unit = trim((string) $_cmd->getUnite());
+			return in_array($unit, array('°C', '°F', '%', 'hPa', 'ppm', 'lx'), true);
+		}
+		foreach (array('TEMPERATURE', 'HUMIDITY', 'PRESSURE', 'CO2', 'AIR_QUALITY', 'NOISE', 'LUMINOSITY', 'UV') as $gt2) {
+			if (strpos($gt, $gt2) === 0 || strpos($gt, $gt2) !== false) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static function exec($_cmdId, $_value) {
-		$cmd = cmd::byId((int) $_cmdId);
+		$cmdId = (int) $_cmdId;
+		$allowed = self::allowedActions();
+		if ($cmdId <= 0 || !isset($allowed[$cmdId])) {
+			throw new Exception('403 Commande non autorisée par Homeboard');
+		}
+		$cmd = cmd::byId($cmdId);
 		if (!is_object($cmd)) {
 			throw new Exception('Commande introuvable');
 		}

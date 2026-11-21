@@ -809,7 +809,23 @@ function hb_icon_options($icons, $selected = '') {
 			});
 		});
 		call('saveTiles', { rows: JSON.stringify(rows) })
-			.then(load).then(function () { ok('{{Tuiles enregistrées}}'); }).catch(ko);
+			.then(function (r) {
+				var res = (r && r.updated !== undefined) ? r : { updated: rows.length, rejected: 0, errors: [] };
+				if (res.rejected) {
+					var detail = (res.errors || []).map(function (e) {
+						return String(e).replace(/[<>&]/g, function (c) {
+							return c === '<' ? '&lt;' : (c === '>' ? '&gt;' : '&amp;');
+						});
+					}).join('<br>');
+					jeedomUtils.showAlert({
+						message: '{{' + res.updated + ' tuile(s) enregistrée(s), ' + res.rejected + ' refusée(s)}}<br><small>' + detail + '</small>',
+						level: 'warning'
+					});
+				}
+				return load();
+			})
+			.then(function () { ok('{{Tuiles enregistrées}}'); })
+			.catch(ko);
 	});
 
 	/* ---------------- Import automatique ---------------- */
