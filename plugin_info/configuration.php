@@ -380,7 +380,15 @@ function hb_icon_options($icons, $selected = '') {
 	}
 
 	function ok(msg) { jeedomUtils.showAlert({ message: msg, level: 'success' }); }
-	function ko(e) { jeedomUtils.showAlert({ message: e.message || String(e), level: 'danger' }); }
+	/* Les messages d'erreur viennent du serveur (PHP, PDO, plugins tiers) et
+	   sont rendus en HTML par la boîte d'alerte : on les échappe. */
+	function ko(e) {
+		var raw = (e && e.message) ? String(e.message) : String(e);
+		var txt = raw.replace(/<[^>]*>/g, '').replace(/[&<>"]/g, function (c) {
+			return c === '&' ? '&amp;' : (c === '<' ? '&lt;' : (c === '>' ? '&gt;' : '&quot;'));
+		});
+		jeedomUtils.showAlert({ message: txt, level: 'danger' });
+	}
 
 	function iconOptions(sel) {
 		var out = '';
