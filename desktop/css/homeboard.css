@@ -1235,6 +1235,78 @@ body.hb-standalone {
 	cursor: default;
 }
 
+/* Tuiles d'action : scénario et bouton poussoir */
+.hb-tile--scene,
+.hb-tile--button {
+	background: var(--hb-surface);
+	border-color: var(--hb-line);
+}
+
+.hb-tile__run {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 50%;
+	border: 1px solid var(--hb-line-hi);
+	color: var(--hb-dim);
+	transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hb-tile__run .hb-i {
+	width: 12px;
+	height: 12px;
+	margin-left: 1px;
+	fill: currentColor;
+}
+
+.hb-tile--scene:active .hb-tile__run,
+.hb-tile--button:active .hb-tile__run {
+	color: var(--hb-acc);
+	border-color: var(--hb-acc);
+}
+
+.hb-tile.is-flash .hb-tile__run {
+	color: var(--hb-acc);
+	border-color: var(--hb-acc);
+}
+
+.hb-tile.is-flash .hb-tile__sub {
+	color: var(--hb-txt);
+}
+
+/* Mode mur : voile de veille */
+.hb-sleep {
+	position: fixed;
+	inset: 0;
+	z-index: 90;
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	background: #000;
+}
+
+body.hb-asleep .hb-sleep {
+	display: flex;
+}
+
+.hb-sleep__clock {
+	font-size: clamp(56px, 12vw, 148px);
+	font-weight: 300;
+	letter-spacing: -0.03em;
+	line-height: 1;
+	color: var(--hb-txt);
+	font-variant-numeric: tabular-nums;
+}
+
+.hb-sleep__date {
+	font-size: clamp(13px, 1.6vw, 20px);
+	color: var(--hb-dim);
+}
+
 .hb-empty--error {
 	margin: 24px;
 }

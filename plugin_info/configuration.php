@@ -9,6 +9,7 @@ $icons = homeboard::iconList();
 $homeName = config::byKey('homeName', 'homeboard', 'Maison');
 $showClock = (int) config::byKey('showClock', 'homeboard', 1);
 $refresh = (int) config::byKey('refresh', 'homeboard', 3);
+$wallMode = (int) config::byKey('wallMode', 'homeboard', 0);
 
 $pwaUrl = rtrim((string) network::getNetworkAccess('internal'), '/') . '/plugins/homeboard/pwa/index.php';
 $dashUrl = 'index.php?v=d&p=homeboard&m=homeboard';
@@ -39,6 +40,15 @@ function hb_icon_options($icons, $selected = '') {
 				<div class="col-sm-4">
 					<input type="checkbox" id="hb-show-clock" <?php echo $showClock ? 'checked' : ''; ?>>
 					<span class="help-block">{{Afficher l'heure et la date en haut de l'écran}}</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Mode mur}}</label>
+				<div class="col-sm-6">
+					<input type="checkbox" id="hb-wall-mode" <?php echo $wallMode ? 'checked' : ''; ?>>
+					<span class="help-block">
+						{{Tablette murale : voile de veille avec grande horloge après 2 min sans contact, réveil au premier toucher, et demande au navigateur de garder l'écran allumé (HTTPS).}}
+					</span>
 				</div>
 			</div>
 			<div class="form-group">
@@ -233,6 +243,36 @@ function hb_icon_options($icons, $selected = '') {
 		</fieldset>
 
 		<fieldset>
+			<legend><i class="fas fa-film"></i> {{Scènes}}</legend>
+			<p class="help-block">
+				{{Ajoutez un scénario Jeedom comme tuile du tableau de bord : un appui déclenche le scénario et la
+				tuile affiche son état (en cours, terminé). Les scénarios désactivés ne sont pas proposés.}}
+			</p>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Pièce d'accueil}}</label>
+				<div class="col-sm-4">
+					<select class="form-control" id="hb-scene-room"></select>
+					<span class="help-block">{{Pièce où sont rangées les tuiles ajoutées depuis cette liste}}</span>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-sm-12">
+					<table class="table table-condensed table-bordered" id="hb-scenes">
+						<thead>
+							<tr>
+								<th>{{Scénario}}</th>
+								<th style="width:180px">{{Groupe}}</th>
+								<th style="width:110px" class="text-center">{{État}}</th>
+								<th style="width:180px" class="text-center">{{Tuile}}</th>
+							</tr>
+						</thead>
+						<tbody></tbody>
+					</table>
+				</div>
+			</div>
+		</fieldset>
+
+		<fieldset>
 			<legend><i class="fas fa-mobile-alt"></i> {{Application mobile (PWA)}}</legend>
 			<p class="help-block">
 				{{Cette page est une application web installable : ouvre-la dans le navigateur du téléphone puis « Ajouter à l'écran d'accueil ». Elle fonctionne alors en plein écran, sans barre d'adresse.}}
@@ -266,7 +306,7 @@ function hb_icon_options($icons, $selected = '') {
 	var ICONS = <?php echo json_encode($icons); ?>;
 	var KIND_LABELS = {
 		auto: 'Automatique', light: 'Lumière', thermostat: 'Thermostat', sensor: 'Sonde',
-		switch: 'Prise', shutter: 'Volet', camera: 'Caméra'
+		switch: 'Prise', shutter: 'Volet', camera: 'Caméra', button: 'Bouton', scene: 'Scène'
 	};
 
 	var HB = { rooms: [], tiles: [], picked: null, timer: null };
@@ -366,6 +406,78 @@ function hb_icon_options($icons, $selected = '') {
 		tb.innerHTML = html || '<tr><td colspan="10" class="text-center text-muted">{{Aucune tuile}}</td></tr>';
 	}
 
+	/* ---------------- Scènes ---------------- */
+
+	function renderScenes() {
+		var tb = document.querySelector('#hb-scenes tbody');
+		if (!tb) { return; }
+		var used = {};
+		HB.tiles.forEach(function (t) {
+			if (String(t.kind) === 'scene' && Number(t.scenario_id)) {
+				used[Number(t.scenario_id)] = true;
+			}
+		});
+		var html = '';
+		(HB.scenes || []).forEach(function (s) {
+			var active = Number(s.isActive) ? true : false;
+			html += '<tr data-scenario="' + s.id + '">' +
+				'<td><strong>' + esc(s.name) + '</strong>' +
+				(active ? '' : ' <small class="text-muted">({{désactivé}})</small>') + '</td>' +
+				'<td>' + esc(s.group || '—') + '</td>' +
+				'<td class="text-center">' + esc(s.state || '—') + '</td>' +
+				'<td class="text-center">' +
+				(used[s.id]
+					? '<span class="label label-success">{{Ajoutée}}</span>'
+					: (active
+						? '<button class="btn btn-default btn-xs hb-add-scene" data-id="' + s.id +
+							'" data-name="' + esc(s.name) + '"><i class="fas fa-plus"></i> {{Ajouter}}</button>'
+						: '<span class="text-muted">{{désactivé}}</span>')) +
+				'</td></tr>';
+		});
+		tb.innerHTML = html || '<tr><td colspan="4" class="text-center text-muted">{{Aucun scénario}}</td></tr>';
+	}
+
+	function loadScenes() {
+		return call('scenarios').then(function (list) {
+			HB.scenes = list || [];
+			var sel = document.getElementById('hb-scene-room');
+			if (sel) {
+				var keep = sel.value;
+				var html = '<option value="0">{{Autres}}</option>';
+				HB.rooms.forEach(function (r) {
+					html += '<option value="' + r.id + '">' + esc(r.name) + '</option>';
+				});
+				sel.innerHTML = html;
+				if (keep) { sel.value = keep; }
+			}
+			renderScenes();
+		}).catch(ko);
+	}
+
+	document.addEventListener('click', function (e) {
+		var b = e.target.closest ? e.target.closest('.hb-add-scene') : null;
+		if (!b) { return; }
+		var roomSel = document.getElementById('hb-scene-room');
+		b.disabled = true;
+		call('saveTile', {
+			id: 0,
+			room_id: roomSel ? roomSel.value : 0,
+			cmd_id: 0,
+			scenario_id: b.getAttribute('data-id'),
+			label: b.getAttribute('data-name'),
+			kind: 'scene',
+			icon: 'scene',
+			size: 'normal',
+			isFavorite: 0,
+			pos: HB.tiles.length
+		}).then(load).then(loadScenes).then(function () {
+			ok('{{Tuile de scénario ajoutée}}');
+		}).catch(function (err) {
+			b.disabled = false;
+			ko(err);
+		});
+	});
+
 	function load() {
 		return call('adminData').then(function (d) {
 			HB.rooms = d.rooms || [];
@@ -381,6 +493,7 @@ function hb_icon_options($icons, $selected = '') {
 		call('saveSettings', {
 			homeName: document.getElementById('hb-home-name').value,
 			showClock: document.getElementById('hb-show-clock').checked ? 1 : 0,
+			wallMode: document.getElementById('hb-wall-mode').checked ? 1 : 0,
 			refresh: document.getElementById('hb-refresh').value
 		}).then(function () { ok('{{Réglages enregistrés}}'); }).catch(ko);
 	});
@@ -445,9 +558,11 @@ function hb_icon_options($icons, $selected = '') {
 				}
 				var html = '';
 				rows.forEach(function (r) {
-					html += '<div class="hb-search-item" data-id="' + r.id + '" data-kind="' + r.kind + '">' +
+					html += '<div class="hb-search-item" data-id="' + r.id + '" data-kind="' + r.kind +
+						'" data-type="' + esc(r.type) + '">' +
 						'<strong>' + esc(r.eq) + '</strong> — ' + esc(r.name) +
-						' <small>(' + esc(r.gt || '—') + ' · ' + esc(r.kind) + ')</small></div>';
+						' <small>(' + esc(r.gt || '—') + ' · ' + esc(r.kind) +
+						(r.type === 'action' ? ' · action' : '') + ')</small></div>';
 				});
 				resultsEl.innerHTML = html;
 				resultsEl.style.display = '';
@@ -459,7 +574,12 @@ function hb_icon_options($icons, $selected = '') {
 		var item = e.target.closest('.hb-search-item[data-id]');
 		if (!item) { return; }
 		var txt = item.textContent;
-		HB.picked = { id: item.getAttribute('data-id'), kind: item.getAttribute('data-kind'), text: txt };
+		HB.picked = {
+			id: item.getAttribute('data-id'),
+			kind: item.getAttribute('data-kind'),
+			type: item.getAttribute('data-type'),
+			text: txt
+		};
 		pickedEl.innerHTML = '<span class="hb-picked"><i class="fas fa-check-circle" style="color:#3a3"></i> ' +
 			esc(txt) + '<i class="fas fa-times hb-clear"></i></span>';
 		pickedEl.style.display = '';
@@ -468,7 +588,14 @@ function hb_icon_options($icons, $selected = '') {
 			document.getElementById('hb-tile-label').value = txt.split('—')[0].trim();
 		}
 		var kindSel = document.getElementById('hb-tile-kind');
-		if (kindSel.value === 'auto' && HB.picked.kind) { kindSel.value = HB.picked.kind; }
+		/* Une commande d'action ne peut être qu'une tuile « bouton » : côté
+		   serveur, une action comme pilote d'affichage exécuterait la commande
+		   à chaque chargement du tableau de bord. */
+		if (HB.picked.type === 'action') {
+			kindSel.value = 'button';
+		} else if (kindSel.value === 'auto' && HB.picked.kind) {
+			kindSel.value = HB.picked.kind;
+		}
 	});
 
 	pickedEl.addEventListener('click', function (e) {
@@ -638,6 +765,6 @@ function hb_icon_options($icons, $selected = '') {
 		}).catch(ko).then(function () { btn.disabled = false; });
 	});
 
-	load();
+	load().then(loadScenes);
 })();
 </script>

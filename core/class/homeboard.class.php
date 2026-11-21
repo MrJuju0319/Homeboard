@@ -41,6 +41,7 @@ class homeboard extends eqLogic {
 				`id` int(11) NOT NULL AUTO_INCREMENT,
 				`room_id` int(11) NOT NULL DEFAULT 0,
 				`cmd_id` int(11) NOT NULL DEFAULT 0,
+				`scenario_id` int(11) NOT NULL DEFAULT 0,
 				`label` varchar(191) NOT NULL DEFAULT '',
 				`kind` varchar(32) NOT NULL DEFAULT 'auto',
 				`icon` varchar(64) NOT NULL DEFAULT '',
@@ -54,6 +55,27 @@ class homeboard extends eqLogic {
 		);
 		foreach ($sql as $query) {
 			DB::getConnection()->exec($query);
+		}
+		self::ensureSchema();
+	}
+
+	/* Migration : les installations créées avant l'ajout des tuiles de scénario
+	   n'ont pas la colonne scenario_id. Idempotent, appelé à la mise à jour. */
+	public static function ensureSchema() {
+		try {
+			$cols = DB::Prepare('SHOW COLUMNS FROM homeboard_tile', array(), DB::FETCH_TYPE_ALL);
+		} catch (Exception $e) {
+			return;
+		}
+		$have = array();
+		foreach ((array) $cols as $c) {
+			if (isset($c['Field'])) {
+				$have[$c['Field']] = true;
+			}
+		}
+		if (!isset($have['scenario_id'])) {
+			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD COLUMN `scenario_id` int(11) NOT NULL DEFAULT 0 AFTER `cmd_id`');
+			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD KEY `scenario_id` (`scenario_id`)');
 		}
 	}
 
@@ -77,6 +99,9 @@ class homeboard extends eqLogic {
 		if (config::byKey('refresh', self::PLUGIN_ID, null) === null) {
 			config::save('refresh', 3, self::PLUGIN_ID);
 		}
+		if (config::byKey('wallMode', self::PLUGIN_ID, null) === null) {
+			config::save('wallMode', 0, self::PLUGIN_ID);
+		}
 	}
 
 	public static function settings() {
@@ -84,6 +109,7 @@ class homeboard extends eqLogic {
 			'homeName' => (string) config::byKey('homeName', self::PLUGIN_ID, 'Maison'),
 			'showClock' => (int) config::byKey('showClock', self::PLUGIN_ID, 1),
 			'refresh' => max(2, min(30, (int) config::byKey('refresh', self::PLUGIN_ID, 3))),
+			'wallMode' => (int) config::byKey('wallMode', self::PLUGIN_ID, 0),
 		);
 	}
 
@@ -140,24 +166,51 @@ class homeboard extends eqLogic {
 
 	public static function saveTile($_data) {
 		$id = isset($_data['id']) ? (int) $_data['id'] : 0;
+		$kind = self::validKind(isset($_data['kind']) ? $_data['kind'] : 'auto');
 		$cmdId = isset($_data['cmd_id']) ? (int) $_data['cmd_id'] : 0;
-		$cmd = cmd::byId($cmdId);
-		if (!is_object($cmd)) {
-			throw new Exception('Commande Jeedom introuvable (id ' . $cmdId . ')');
-		}
-		/* Une tuile est pilotée par une commande d'information : accepter une
-		   commande d'action ferait exécuter l'action à chaque affichage
-		   (buildTile → stateOf → execCmd). */
-		if ($cmd->getType() !== 'info') {
-			throw new Exception('La commande pilote doit être une commande d\'information');
+		$scenarioId = isset($_data['scenario_id']) ? (int) $_data['scenario_id'] : 0;
+		$cmd = null;
+		$eq = null;
+		$sc = null;
+		if ($kind === 'scene') {
+			$sc = scenario::byId($scenarioId);
+			if (!is_object($sc)) {
+				throw new Exception('Scénario Jeedom introuvable (id ' . $scenarioId . ')');
+			}
+			if ((int) $sc->getIsActive() !== 1) {
+				throw new Exception('Ce scénario est désactivé dans Jeedom');
+			}
+			if (method_exists($sc, 'hasRight') && !$sc->hasRight('x')) {
+				throw new Exception('Droits insuffisants sur ce scénario');
+			}
+			$cmdId = 0;
+		} else {
+			$scenarioId = 0;
+			$cmd = cmd::byId($cmdId);
+			if (!is_object($cmd)) {
+				throw new Exception('Commande Jeedom introuvable (id ' . $cmdId . ')');
+			}
+			$eq = $cmd->getEqLogic();
+			/* Tuile d'affichage = commande d'information ; tuile bouton = action
+			   pure. Une commande d'action comme pilote ferait exécuter l'action à
+			   chaque affichage (buildTile → stateOf → execCmd). */
+			if ($kind === 'button') {
+				if ($cmd->getType() !== 'action') {
+					throw new Exception('Une tuile bouton doit pointer sur une commande d\'action');
+				}
+			} elseif ($cmd->getType() !== 'info') {
+				throw new Exception('La commande pilote doit être une commande d\'information');
+			}
 		}
 		$label = isset($_data['label']) ? trim((string) $_data['label']) : '';
 		if ($label === '') {
-			$eq = $cmd->getEqLogic();
-			$label = is_object($eq) ? $eq->getName() : $cmd->getName();
+			if ($kind === 'scene') {
+				$label = (string) $sc->getName();
+			} else {
+				$label = is_object($eq) ? $eq->getName() : $cmd->getName();
+			}
 		}
 		$label = mb_substr($label, 0, 191);
-		$kind = self::validKind(isset($_data['kind']) ? $_data['kind'] : 'auto');
 		$icon = isset($_data['icon']) ? (string) $_data['icon'] : '';
 		if ($icon !== '' && !in_array($icon, self::iconList(), true)) {
 			$icon = '';
@@ -170,11 +223,11 @@ class homeboard extends eqLogic {
 		}
 		$pos = isset($_data['pos']) ? (int) $_data['pos'] : 0;
 		if ($id > 0) {
-			DB::Prepare('UPDATE homeboard_tile SET room_id = ?, cmd_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
-				array($roomId, $cmdId, $label, $kind, $icon, $size, $fav, $pos, $id));
+			DB::Prepare('UPDATE homeboard_tile SET room_id = ?, cmd_id = ?, scenario_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
+				array($roomId, $cmdId, $scenarioId, $label, $kind, $icon, $size, $fav, $pos, $id));
 		} else {
-			DB::Prepare('INSERT INTO homeboard_tile (room_id, cmd_id, label, kind, icon, size, isFavorite, pos) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-				array($roomId, $cmdId, $label, $kind, $icon, $size, $fav, $pos));
+			DB::Prepare('INSERT INTO homeboard_tile (room_id, cmd_id, scenario_id, label, kind, icon, size, isFavorite, pos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+				array($roomId, $cmdId, $scenarioId, $label, $kind, $icon, $size, $fav, $pos));
 			$id = (int) DB::getLastInsertId();
 		}
 		return $id;
@@ -187,7 +240,7 @@ class homeboard extends eqLogic {
 	/* Types de tuile autorisés : la valeur est écrite dans un attribut class
 	   côté JavaScript, une chaîne libre serait une injection persistante. */
 	public static function validKind($_kind) {
-		$kinds = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera');
+		$kinds = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera', 'button', 'scene');
 		$k = trim((string) $_kind);
 		return in_array($k, $kinds, true) ? $k : 'auto';
 	}
@@ -461,9 +514,16 @@ class homeboard extends eqLogic {
 	 * ============================================================ */
 
 	public static function buildTile($_row) {
+		$kind = self::validKind((string) $_row['kind']);
+		if ($kind === 'scene') {
+			return self::buildSceneTile($_row);
+		}
 		$cmd = cmd::byId((int) $_row['cmd_id']);
 		if (!is_object($cmd)) {
 			return null;
+		}
+		if ($kind === 'button') {
+			return self::buildButtonTile($_row, $cmd);
 		}
 		$eq = $cmd->getEqLogic();
 		/* Droits par équipement : un utilisateur à accès restreint ne doit pas
@@ -530,6 +590,150 @@ class homeboard extends eqLogic {
 			'chart' => $chart,
 			'state' => self::stateOf($stateCmd),
 		);
+	}
+
+	/* ============================================================
+	 *  Tuiles d'action : scénario et bouton poussoir
+	 * ============================================================ */
+
+	/* Un scénario n'a pas d'état de « tuile » : on rend un modèle minimal, sans
+	   commande pilote, pour ne jamais appeler stateOf() dessus. */
+	private static function buildSceneTile($_row) {
+		$sc = scenario::byId((int) $_row['scenario_id']);
+		if (!is_object($sc) || (int) $sc->getIsActive() !== 1) {
+			return null;
+		}
+		if (method_exists($sc, 'hasRight') && !$sc->hasRight('x')) {
+			return null;
+		}
+		$label = trim((string) $_row['label']);
+		if ($label === '') {
+			$label = (string) $sc->getName();
+		}
+		$icon = (string) $_row['icon'];
+		return array(
+			'id' => (int) $_row['id'],
+			'room_id' => (int) $_row['room_id'],
+			'cmd_id' => 0,
+			'scenario_id' => (int) $sc->getId(),
+			'label' => $label,
+			'sub' => 'Scénario',
+			'kind' => 'scene',
+			'icon' => $icon !== '' ? $icon : 'scene',
+			'size' => (string) $_row['size'],
+			'favorite' => (int) $_row['isFavorite'],
+			'caps' => array('canExec' => true),
+			'extra' => array(),
+			'chart' => null,
+			'state' => null,
+		);
+	}
+
+	/* Bouton poussoir : commande d'action pure, aucun état à lire. */
+	private static function buildButtonTile($_row, $_cmd) {
+		if ($_cmd->getType() !== 'action') {
+			return null;
+		}
+		$eq = $_cmd->getEqLogic();
+		if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+			return null;
+		}
+		$canExec = (!is_object($eq) || !method_exists($eq, 'hasRight')) ? true : (bool) $eq->hasRight('x');
+		$label = trim((string) $_row['label']);
+		if ($label === '') {
+			$label = (string) $_cmd->getName();
+		}
+		$icon = (string) $_row['icon'];
+		return array(
+			'id' => (int) $_row['id'],
+			'room_id' => (int) $_row['room_id'],
+			'cmd_id' => (int) $_cmd->getId(),
+			'scenario_id' => 0,
+			'label' => $label,
+			'sub' => is_object($eq) ? (string) $eq->getName() : 'Action',
+			'kind' => 'button',
+			'icon' => $icon !== '' ? $icon : self::defaultIcon('auto'),
+			'size' => (string) $_row['size'],
+			'favorite' => (int) $_row['isFavorite'],
+			'caps' => array('canExec' => $canExec),
+			'extra' => array(),
+			'chart' => null,
+			'state' => null,
+		);
+	}
+
+	public static function scenarioStateLabel($_sc) {
+		$state = is_object($_sc) ? (string) $_sc->getState() : '';
+		if ($state === 'starting' || $state === 'in progress') {
+			return 'En cours';
+		}
+		return '';
+	}
+
+	/* Liste des scénarios pour la page de configuration. */
+	public static function scenarios() {
+		$out = array();
+		$all = scenario::all();
+		foreach ((array) $all as $sc) {
+			if (!is_object($sc)) {
+				continue;
+			}
+			if (method_exists($sc, 'hasRight') && !$sc->hasRight('x')) {
+				continue;
+			}
+			$out[] = array(
+				'id' => (int) $sc->getId(),
+				'name' => (string) $sc->getName(),
+				'group' => (string) $sc->getGroup(),
+				'isActive' => (int) $sc->getIsActive(),
+				'state' => self::scenarioStateLabel($sc),
+			);
+		}
+		usort($out, function ($a, $b) {
+			if ($a['isActive'] !== $b['isActive']) {
+				return $b['isActive'] - $a['isActive'];
+			}
+			return strcmp($a['name'], $b['name']);
+		});
+		return $out;
+	}
+
+	public static function runScenario($_id) {
+		$sc = scenario::byId((int) $_id);
+		if (!is_object($sc)) {
+			throw new Exception('Scénario introuvable');
+		}
+		if ((int) $sc->getIsActive() !== 1) {
+			throw new Exception('Ce scénario est désactivé dans Jeedom');
+		}
+		if (method_exists($sc, 'hasRight') && !$sc->hasRight('x')) {
+			throw new Exception('Droits insuffisants sur ce scénario');
+		}
+		if (config::byKey('enableScenario') != 1) {
+			throw new Exception('Les scénarios sont désactivés dans Jeedom');
+		}
+		$launched = $sc->launch();
+		return array(
+			'launched' => (bool) $launched,
+			'name' => (string) $sc->getName(),
+			'state' => (string) $sc->getState(),
+		);
+	}
+
+	public static function scenarioStates($_ids) {
+		$out = array();
+		foreach ((array) $_ids as $id) {
+			$id = (int) $id;
+			if ($id <= 0) {
+				continue;
+			}
+			$sc = scenario::byId($id);
+			if (!is_object($sc)) {
+				continue;
+			}
+			$out[$id] = array('state' => (string) $sc->getState(), 'display' => self::scenarioStateLabel($sc));
+		}
+		return $out;
 	}
 
 	/* ============================================================
@@ -1123,27 +1327,31 @@ class homeboard extends eqLogic {
 		$q = trim((string) $_query);
 		$limit = max(1, min(100, (int) $_limit));
 		$params = array();
-		$where = "c.type = 'info' AND e.isEnable = 1";
+		/* Les commandes d'action sont incluses : ce sont elles qui alimentent
+		   les tuiles « bouton poussoir » (virtuels sans retour d'état). */
+		$where = "c.type IN ('info','action') AND e.isEnable = 1 AND c.isVisible = 1";
 		if ($q !== '') {
 			$like = '%' . $q . '%';
 			$where .= ' AND (c.name LIKE ? OR e.name LIKE ?)';
 			$params[] = $like;
 			$params[] = $like;
 		}
-		$rows = DB::Prepare('SELECT c.id, c.name, c.subType, c.generic_type, c.unite, e.name AS eq_name, e.id AS eq_id
+		$rows = DB::Prepare('SELECT c.id, c.name, c.type, c.subType, c.generic_type, c.unite, e.name AS eq_name, e.id AS eq_id
 			FROM cmd c JOIN eqLogic e ON e.id = c.eqLogic_id
 			WHERE ' . $where . '
 			ORDER BY e.name, c.name LIMIT ' . $limit, $params, DB::FETCH_TYPE_ALL);
 		$out = array();
 		foreach ((array) $rows as $r) {
+			$isAction = ((string) $r['type'] === 'action');
 			$out[] = array(
 				'id' => (int) $r['id'],
 				'name' => (string) $r['name'],
 				'eq' => (string) $r['eq_name'],
 				'eq_id' => (int) $r['eq_id'],
+				'type' => (string) $r['type'],
 				'gt' => (string) $r['generic_type'],
 				'unite' => (string) $r['unite'],
-				'kind' => self::kindFromGeneric($r['generic_type'], $r['subType']),
+				'kind' => $isAction ? 'button' : self::kindFromGeneric($r['generic_type'], $r['subType']),
 			);
 		}
 		return $out;
@@ -1154,8 +1362,14 @@ class homeboard extends eqLogic {
 		$tiles = array();
 		foreach (self::tiles() as $row) {
 			$cmd = cmd::byId((int) $row['cmd_id']);
-			$row['cmd_name'] = is_object($cmd) ? $cmd->getName() : '(commande supprimée)';
-			$row['eq_name'] = (is_object($cmd) && is_object($cmd->getEqLogic())) ? $cmd->getEqLogic()->getName() : '';
+			$sc = (!empty($row['scenario_id'])) ? scenario::byId((int) $row['scenario_id']) : null;
+			if ((string) $row['kind'] === 'scene') {
+				$row['cmd_name'] = is_object($sc) ? $sc->getName() : '(scénario supprimé)';
+				$row['eq_name'] = 'Scénario';
+			} else {
+				$row['cmd_name'] = is_object($cmd) ? $cmd->getName() : '(commande supprimée)';
+				$row['eq_name'] = (is_object($cmd) && is_object($cmd->getEqLogic())) ? $cmd->getEqLogic()->getName() : '';
+			}
 			$row['state'] = (is_object($cmd) && $cmd->getType() === 'info') ? (string) $cmd->execCmd() : '';
 			$row['unite'] = is_object($cmd) ? (string) $cmd->getUnite() : '';
 			$row['generic_type'] = is_object($cmd) ? (string) $cmd->getGeneric_type() : '';

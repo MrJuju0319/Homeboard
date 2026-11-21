@@ -24,6 +24,10 @@ aucun build : PHP + JS natif.
   d'envoyer une valeur devinée.
 - **Import** : les commandes déjà tuilées sont ignorées côté serveur (compteur
   « déjà présente(s) ») et la pièce retenue par l'analyse est conservée.
+- **Scènes et boutons** : une tuile peut déclencher un scénario Jeedom ou une
+  commande d'action pure, avec accusé d'envoi et état du scénario (en cours,
+  terminé). Voir « Scènes et boutons » plus bas.
+- **Mode mur** : case à cocher dans la configuration. Voir « Mode mur ».
 - **Responsive** : 2 colonnes sur téléphone, 4 sur tablette, 6 sur écran 16".
   Navigation par chips sur mobile, barre latérale au-delà de 1100 px.
 - **PWA** : `plugins/homeboard/pwa/index.php` s'installe sur l'écran d'accueil
@@ -87,6 +91,39 @@ aucun build : PHP + JS natif.
 - `-webkit-touch-callout: none` et `user-select: none` sur les tuiles pour éviter
   le menu contextuel d'iOS lors d'un appui long.
 
+## Scènes et boutons
+
+Deux types de tuiles déclenchent une action au lieu d'afficher un état.
+
+- **Scène** : dans la configuration, section « Scènes », chaque scénario actif a
+  un bouton *Ajouter* ; la pièce d'accueil se choisit au-dessus de la liste. Un
+  appui lance le scénario, la sous-ligne de la tuile affiche l'accusé (« Envoi… »,
+  « En cours… », « Terminé ») en interrogeant l'état réel du scénario. Les
+  scénarios désactivés ne sont ni proposés ni conservés à l'affichage.
+- **Bouton** : une tuile dont la commande est de type *action* (virtuel sans
+  retour d'état). La recherche de commande les propose désormais ; choisir une
+  action force le type « Bouton ». La tuile affiche « Envoyé » puis revient à
+  son libellé.
+- Une commande d'action **ne peut pas** servir de commande pilote pour un autre
+  type de tuile : elle s'exécuterait à chaque affichage du tableau de bord.
+  Le serveur refuse l'enregistrement et la lecture ignore ce genre de tuile
+  héritée.
+- L'appui long sur une tuile d'action ne cherche pas à ouvrir une feuille de
+  détail : il déclenche l'action, comme un appui court.
+
+## Mode mur
+
+Case à cocher **Mode mur** dans la configuration (désactivée par défaut).
+
+- Après deux minutes sans contact, un voile noir affiche une grande horloge et
+  la date ; le premier toucher réveille le tableau de bord (et ce toucher de
+  réveil n'atteint pas la tuile située dessous).
+- Le navigateur est invité à ne pas laisser l'écran s'éteindre (`WakeLock`),
+  quand il le permet : HTTPS obligatoire, sinon la demande est simplement
+  ignorée.
+- Le rafraîchissement des états continue pendant la veille : au réveil, les
+  valeurs sont déjà à jour.
+
 ## Sécurité
 
 - Toutes les actions d'écriture et `exec()` passent en **POST** ; les lectures
@@ -105,6 +142,10 @@ aucun build : PHP + JS natif.
   couleur, longueur bornée pour un message.
 - `kind`, `icon` et `size` sont restreints à des listes fermées côté PHP, et le
   type de tuile est écrit dans un attribut `class` via une valeur filtrée.
+- Un scénario n'est lançable que s'il est actif, si l'utilisateur a le droit
+  `x` dessus et si les scénarios sont autorisés dans Jeedom ; une tuile de
+  scénario pointe sur un `scenario_id` validé à l'écriture, jamais sur un
+  numéro venu du navigateur au moment de l'exécution.
 - Les écritures d'administration exigent `isConnect('admin')` ; l'exécution
   vérifie `$eqLogic->hasRight('x')` et l'affichage filtre sur `hasRight('r')`.
   Sans droit d'exécution, la tuile est grisée et la commande ne part pas.
@@ -137,6 +178,9 @@ aucun build : PHP + JS natif.
 - Les volets se pilotent par Ouvrir / Stop / Fermer : pas de curseur de
   position dans la feuille de détail (la commande `FLAP_SLIDER` est détectée
   mais pas encore exposée).
+- L'accusé d'un scénario s'arrête à « Terminé » : Homeboard suit l'état du
+  scénario (`starting` / `in progress` / `stop`), pas le résultat interne de
+  chaque action qu'il contient.
 - La désinstallation du plugin supprime les tables `homeboard_room` et
   `homeboard_tile` (les tuiles sont donc à refaire après réinstallation).
 

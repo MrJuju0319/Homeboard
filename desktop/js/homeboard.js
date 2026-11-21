@@ -39,6 +39,7 @@
 		fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-3 1-7 4-7 2 0 3 2 3 4 0 2-2 3-5 3z"/><path d="M14 12c3 0 7 1 7 4 0 2-2 3-4 3-2 0-3-2-3-5z"/><path d="M12 14c0 3-1 7-4 7-2 0-3-2-3-4 0-2 2-3 5-3z"/><path d="M10 12c-3 0-7-1-7-4 0-2 2-3 4-3 2 0 3 2 3 5z"/>',
 		car: '<path d="M5 17h14"/><path d="M6.5 17V13l1.8-4.2A2 2 0 0 1 10.1 7.5h3.8a2 2 0 0 1 1.8 1.3L17.5 13v4"/><path d="M4 13h16"/><circle cx="8" cy="17.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>',
 		chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+		play: '<path d="M7 4.5l12 7.5-12 7.5z"/>',
 		gear: '<path d="M4 7h9M17 7h3M4 17h4M12 17h8"/><circle cx="15" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
 		shrink: '<path d="M9 3v6H3"/><path d="M3 9l6-6"/><path d="M15 21v-6h6"/><path d="M21 15l-6 6"/>',
 		close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
@@ -279,6 +280,99 @@
 		return parts.join(' · ');
 	}
 
+	/* ------------------------------------------------------------------ */
+	/*  Mode mur                                                           */
+	/* ------------------------------------------------------------------ */
+
+	var wall = { timer: null, clockTimer: null, asleep: false, lock: null, el: null, bound: false, delay: 120000 };
+
+	function wallClock() {
+		if (!wall.el) { return; }
+		var d = new Date();
+		var c = wall.el.querySelector('.hb-sleep__clock');
+		var dd = wall.el.querySelector('.hb-sleep__date');
+		if (c) {
+			c.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+		}
+		if (dd) {
+			dd.textContent = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+		}
+	}
+
+	function wallSleep() {
+		if (!wall.el) {
+			wall.el = document.createElement('div');
+			wall.el.className = 'hb-sleep';
+			wall.el.setAttribute('aria-hidden', 'true');
+			wall.el.innerHTML = '<div class="hb-sleep__clock"></div><div class="hb-sleep__date"></div>';
+			document.body.appendChild(wall.el);
+		}
+		wall.asleep = true;
+		document.body.classList.add('hb-asleep');
+		wallClock();
+		clearInterval(wall.clockTimer);
+		wall.clockTimer = setInterval(wallClock, 20000);
+	}
+
+	function wallIdle() {
+		if (!S.home || !Number(S.home.wallMode)) { return; }
+		clearTimeout(wall.timer);
+		wall.timer = setTimeout(wallSleep, wall.delay);
+	}
+
+	/* Empêche la mise en veille de l'écran mural quand le navigateur l'autorise
+	   (Wake Lock : HTTPS + geste utilisateur). Silencieux sinon. */
+	function wallLock() {
+		if (!S.home || !Number(S.home.wallMode)) { return; }
+		if (!('wakeLock' in navigator) || wall.lock) { return; }
+		navigator.wakeLock.request('screen').then(function (l) {
+			wall.lock = l;
+			l.addEventListener('release', function () { wall.lock = null; });
+		}).catch(function () {});
+	}
+
+	function wallWake() {
+		if (!S.home || !Number(S.home.wallMode)) { return; }
+		if (wall.asleep) {
+			wall.asleep = false;
+			document.body.classList.remove('hb-asleep');
+			clearInterval(wall.clockTimer);
+			/* Le voile vient d'être retiré : le clic de réveil ne doit pas
+			   atteindre la tuile située dessous. */
+			document.addEventListener('click', function (e) {
+				e.stopPropagation();
+				e.preventDefault();
+			}, { capture: true, once: true });
+		}
+		wallLock();
+		wallIdle();
+	}
+
+	function applyWallMode() {
+		var on = !!(S.home && Number(S.home.wallMode));
+		document.body.classList.toggle('hb-wall', on);
+		if (wall.bound) {
+			if (!on) {
+				document.body.classList.remove('hb-asleep');
+				wall.asleep = false;
+				clearTimeout(wall.timer);
+				clearInterval(wall.clockTimer);
+			} else {
+				wallIdle();
+			}
+			return;
+		}
+		if (!on) { return; }
+		wall.bound = true;
+		['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+			document.addEventListener(ev, wallWake, { passive: true });
+		});
+		document.addEventListener('visibilitychange', function () {
+			if (document.visibilityState === 'visible') { wallWake(); }
+		});
+		wallIdle();
+	}
+
 	function paintHead() {
 		var now = new Date();
 		var clock = '';
@@ -337,16 +431,28 @@
 		var on = isOn(t);
 		/* Le type vient du serveur mais il est écrit dans un attribut class :
 		   on n'accepte qu'une valeur alphabétique connue. */
-		var kind = /^(light|thermostat|sensor|switch|shutter|camera)$/.test(t.kind) ? t.kind : 'switch';
+		var kind = /^(light|thermostat|sensor|switch|shutter|camera|button|scene)$/.test(t.kind) ? t.kind : 'switch';
+		var isAction = (kind === 'scene' || kind === 'button');
 		var cls = 'hb-tile hb-tile--' + kind;
 		if (t.caps && t.caps.canExec === false) { cls += ' is-locked'; }
 		if (t.size === 'wide') { cls += ' hb-tile--wide'; }
 		if (t.size === 'tall') { cls += ' hb-tile--tall'; }
-		cls += on ? ' is-on' : ' is-off';
+		if (!isAction) { cls += on ? ' is-on' : ' is-off'; }
 
 		var html = '<div class="' + cls + '" data-tile="' + t.id + '" data-sig="' + esc(tileSig(t)) + '" ' +
 			(showRoom ? 'data-fav="1" ' : '') +
 			'role="button" tabindex="0" aria-label="' + esc(t.label) + '">';
+
+		if (isAction) {
+			/* Scénario ou bouton poussoir : une action à déclencher, aucun état
+			   à afficher (le retour est un accusé temporaire). */
+			var subA = (showRoom && t.room_name) ? t.room_name : (t.sub || (kind === 'scene' ? 'Scénario' : 'Action'));
+			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
+				'<span class="hb-tile__run">' + svg('play') + '</span></div>' +
+				'<div class="hb-tile__body"><div class="hb-tile__name">' + esc(t.label) + '</div>' +
+				'<div class="hb-tile__sub">' + esc(subA) + '</div></div>';
+			return html + '</div>';
+		}
 
 		if (t.kind === 'thermostat') {
 			html += thermostatHtml(t, showRoom);
@@ -1026,6 +1132,77 @@
 		return true;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/*  Scénarios et boutons poussoirs                                     */
+	/* ------------------------------------------------------------------ */
+
+	var flashTimers = {};
+
+	/* Accusé temporaire dans la sous-ligne de la tuile. Le texte d'origine est
+	   mémorisé pour être restauré sans redessiner toute la grille. */
+	function flashTile(id, text) {
+		var els = sectionsEl.querySelectorAll('[data-tile="' + id + '"]');
+		if (!els.length) { return; }
+		Array.prototype.forEach.call(els, function (el) {
+			el.classList.add('is-flash');
+			var sub = el.querySelector('.hb-tile__sub');
+			if (sub) {
+				if (!sub.hasAttribute('data-orig')) { sub.setAttribute('data-orig', sub.textContent); }
+				sub.textContent = text;
+			}
+		});
+		clearTimeout(flashTimers[id]);
+		flashTimers[id] = setTimeout(function () {
+			Array.prototype.forEach.call(els, function (el) {
+				el.classList.remove('is-flash');
+				var sub = el.querySelector('.hb-tile__sub');
+				if (sub && sub.hasAttribute('data-orig')) {
+					sub.textContent = sub.getAttribute('data-orig');
+					sub.removeAttribute('data-orig');
+				}
+			});
+		}, 3200);
+	}
+
+	function runScene(t) {
+		if (!t.scenario_id || !canAct(t)) { return; }
+		haptic();
+		flashTile(t.id, 'Envoi…');
+		api({ action: 'runScenario', id: t.scenario_id }, 'POST').then(function (r) {
+			if (!r || !r.launched) {
+				flashTile(t.id, 'Non lancé');
+				toast('Scénario non lancé (désactivé ou droits insuffisants)');
+				return;
+			}
+			flashTile(t.id, 'En cours…');
+			pollScenario(t, 0);
+		}).catch(function (e) {
+			flashTile(t.id, 'Échec');
+			toast(e.message);
+		});
+	}
+
+	/* Retour d'exécution réel : on interroge l'état du scénario jusqu'à ce
+	   qu'il quitte « starting » / « in progress ». */
+	function pollScenario(t, n) {
+		if (n > 15) { flashTile(t.id, 'Lancé'); return; }
+		setTimeout(function () {
+			api({ action: 'scenarioState', ids: t.scenario_id }).then(function (r) {
+				var s = r ? r[t.scenario_id] : null;
+				if (!s) { flashTile(t.id, 'Lancé'); return; }
+				if (s.state === 'starting' || s.state === 'in progress') { pollScenario(t, n + 1); return; }
+				flashTile(t.id, 'Terminé');
+			}).catch(function () { pollScenario(t, n + 1); });
+		}, 700);
+	}
+
+	function pressButton(t) {
+		if (!t.cmd_id || !canAct(t)) { return; }
+		haptic();
+		flashTile(t.id, 'Envoyé');
+		exec(t.cmd_id, '');
+	}
+
 	function stepSetpoint(t, dir) {
 		var c = t.caps || {};
 		if (!c.setSetpoint || !canAct(t)) { return; }
@@ -1099,6 +1276,8 @@
 			if (!t) { return; }
 			var actEl = e.target.closest('[data-act]');
 			if (actEl) { e.preventDefault(); onAct(t, actEl); return; }
+			if (t.kind === 'scene') { runScene(t); return; }
+			if (t.kind === 'button') { pressButton(t); return; }
 			if (t.kind === 'sensor') {
 				if (t.chart) {
 					openSheet({
@@ -1124,7 +1303,10 @@
 			if (!el || e.target.closest('.hb-bri')) { return; }
 			e.preventDefault();
 			var t = S.tiles[el.getAttribute('data-tile')];
-			if (t && t.kind !== 'thermostat' && t.kind !== 'sensor') { toggle(t); }
+			if (!t) { return; }
+			if (t.kind === 'scene') { runScene(t); return; }
+			if (t.kind === 'button') { pressButton(t); return; }
+			if (t.kind !== 'thermostat' && t.kind !== 'sensor') { toggle(t); }
 		});
 
 		window.addEventListener('scroll', scheduleNavFollow, { passive: true });
@@ -1149,6 +1331,12 @@
 				press.fired = true;
 				haptic(18);
 				var t = S.tiles[el.getAttribute('data-tile')];
+				/* Pas de feuille de détail pour une tuile d'action : l'appui
+				   long doit tout de même déclencher le scénario/bouton. */
+				if (t && (t.kind === 'scene' || t.kind === 'button')) {
+					press.fired = false;
+					return;
+				}
 				if (t) { openDetail(t); }
 			}, 480);
 		});
@@ -1289,6 +1477,7 @@
 			buildShell();
 			paintNav();
 			paintHead();
+			applyWallMode();
 			paintSections();
 			schedule();
 			poll();

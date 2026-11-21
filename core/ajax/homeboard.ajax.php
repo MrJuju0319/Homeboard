@@ -24,7 +24,7 @@ try {
 	   doivent arriver en POST. Sans cet appel, une balise <img> ou un lien
 	   piégé ouvert depuis une session Jeedom authentifiée pouvait exécuter un
 	   équipement ou effacer la configuration (CSRF). */
-	ajax::init(array('layout', 'values', 'history', 'adminData', 'searchCmd', 'scan'));
+	ajax::init(array('layout', 'values', 'history', 'adminData', 'searchCmd', 'scan', 'scenarioState', 'scenarios'));
 
 	if (!isConnect()) {
 		throw new Exception('401 Unauthorized');
@@ -36,7 +36,7 @@ try {
 	   (ajax::getToken() renvoie ''), on s'appuie donc sur POST + même origine.
 	   Un formulaire hostile d'un autre site n'a ni le bon Origin ni un
 	   Sec-Fetch-Site same-origin. */
-	$writeActions = array('exec', 'saveSettings', 'saveRoom', 'deleteRoom', 'saveTile',
+	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveRoom', 'deleteRoom', 'saveTile',
 		'saveTiles', 'deleteTile', 'import');
 	if (in_array($action, $writeActions, true)) {
 		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
@@ -59,7 +59,7 @@ try {
 	}
 
 	$adminActions = array('saveSettings', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
-		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import');
+		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios');
 	if (in_array($action, $adminActions, true) && !isConnect('admin')) {
 		throw new Exception('401 Unauthorized - droits administrateur requis');
 	}
@@ -87,6 +87,21 @@ try {
 			ajax::success(array('executed' => $result));
 			break;
 
+		/* ---------------- Scénarios ---------------- */
+		case 'runScenario':
+			ajax::success(homeboard::runScenario(init('id')));
+			break;
+
+		case 'scenarioState':
+			$ids = init('ids', '');
+			$ids = $ids === '' ? array() : explode(',', $ids);
+			ajax::success(homeboard::scenarioStates($ids));
+			break;
+
+		case 'scenarios':
+			ajax::success(homeboard::scenarios());
+			break;
+
 		/* ---------------- Administration ---------------- */
 		case 'adminData':
 			ajax::success(homeboard::adminData());
@@ -108,6 +123,7 @@ try {
 			config::save('homeName', trim((string) init('homeName', 'Maison')), homeboard::PLUGIN_ID);
 			config::save('showClock', (int) init('showClock', 1), homeboard::PLUGIN_ID);
 			config::save('refresh', max(2, min(30, (int) init('refresh', 3))), homeboard::PLUGIN_ID);
+			config::save('wallMode', (int) init('wallMode', 0), homeboard::PLUGIN_ID);
 			ajax::success(homeboard::settings());
 			break;
 
@@ -132,6 +148,7 @@ try {
 				'id' => init('id', 0),
 				'room_id' => init('room_id', 0),
 				'cmd_id' => init('cmd_id', 0),
+				'scenario_id' => init('scenario_id', 0),
 				'label' => init('label', ''),
 				'kind' => init('kind', 'auto'),
 				'icon' => init('icon', ''),
