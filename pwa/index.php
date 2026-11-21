@@ -13,8 +13,8 @@ if (!isConnect()) {
 }
 
 $homeName = config::byKey('homeName', 'homeboard', 'Maison');
-$cssVer = @filemtime(dirname(__FILE__) . '/../../desktop/css/homeboard.css');
-$jsVer = @filemtime(dirname(__FILE__) . '/../../desktop/js/homeboard.js');
+$cssVer = @filemtime(dirname(__FILE__) . '/../desktop/css/homeboard.css');
+$jsVer = @filemtime(dirname(__FILE__) . '/../desktop/js/homeboard.js');
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -39,7 +39,7 @@ $jsVer = @filemtime(dirname(__FILE__) . '/../../desktop/js/homeboard.js');
 <body class="hb-standalone">
 	<div id="hb-root"
 	     data-api="../core/ajax/homeboard.ajax.php"
-	     data-config=""></div>
+	     data-config="../../../index.php?v=d&amp;p=plugin&amp;id=homeboard"></div>
 	<script src="../../../core/php/getResource.php?file=plugins/homeboard/desktop/js/homeboard.js&v=<?php echo $jsVer; ?>"></script>
 	<script>
 		if ('serviceWorker' in navigator) {

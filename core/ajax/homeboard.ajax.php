@@ -20,6 +20,12 @@ try {
 	require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
 	include_file('core', 'authentification', 'php');
 
+	/* Lectures autorisées en GET ; toutes les actions d'écriture et exec()
+	   doivent arriver en POST. Sans cet appel, une balise <img> ou un lien
+	   piégé ouvert depuis une session Jeedom authentifiée pouvait exécuter un
+	   équipement ou effacer la configuration (CSRF). */
+	ajax::init(array('layout', 'values', 'history', 'adminData', 'searchCmd', 'scan'));
+
 	if (!isConnect()) {
 		throw new Exception('401 Unauthorized');
 	}

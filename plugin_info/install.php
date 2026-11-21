@@ -17,7 +17,6 @@ function homeboard_update() {
 }
 
 function homeboard_remove() {
-	/* Les données (pièces et tuiles) sont conservées : une réinstallation
-	   retrouve la configuration. Suppression manuelle des tables possible. */
-	log::add('homeboard', 'info', 'Désinstallation du plugin Homeboard (données conservées)');
+	homeboard::dropTables();
+	log::add('homeboard', 'info', 'Désinstallation du plugin Homeboard (pièces et tuiles supprimées)');
 }

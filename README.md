@@ -81,6 +81,22 @@ aucun build : PHP + JS natif.
 - `-webkit-touch-callout: none` et `user-select: none` sur les tuiles pour éviter
   le menu contextuel d'iOS lors d'un appui long.
 
+## Sécurité
+
+- Toutes les actions d'écriture et `exec()` passent en **POST** ; les lectures
+  (`layout`, `values`, `history`, `scan`, `searchCmd`, `adminData`) sont les
+  seules autorisées en GET. `core/ajax/homeboard.ajax.php` appelle `ajax::init()`,
+  qui refuse toute autre action demandée en GET : une balise `<img>` ou un lien
+  piégé ouvert depuis une session Jeedom ne peut donc pas exécuter un équipement
+  ni effacer la configuration.
+- Les commandes d'administration exigent `isConnect('admin')` ; l'exécution
+  vérifie `$eqLogic->hasRight('x')` et l'affichage filtre sur `hasRight('r')`,
+  donc un utilisateur Jeedom à accès restreint ne voit ni les tuiles ni
+  l'historique des équipements qu'il n'a pas le droit de lire.
+- Aucune donnée d'équipement n'est mise en cache par le service worker (seuls
+  le shell et les CSS/JS versionnés le sont) ; une réponse redirigée (session
+  expirée) n'entre jamais dans le cache.
+
 ## Notes techniques
 
 - Le serveur web de Jeedom refuse l'accès direct aux `.js` de
@@ -100,6 +116,11 @@ aucun build : PHP + JS natif.
 - Pas de glisser-déposer dans l'interface : l'ordre se règle par le champ
   « Ordre » de la configuration.
 - Le mode caméra n'affiche pas encore le flux vidéo (tuile de commande simple).
+- Les volets se pilotent par Ouvrir / Stop / Fermer : pas de curseur de
+  position dans la feuille de détail (la commande `FLAP_SLIDER` est détectée
+  mais pas encore exposée).
+- La désinstallation du plugin supprime les tables `homeboard_room` et
+  `homeboard_tile` (les tuiles sont donc à refaire après réinstallation).
 
 ## Licence
 

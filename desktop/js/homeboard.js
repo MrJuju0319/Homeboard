@@ -39,6 +39,7 @@
 		fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-3 1-7 4-7 2 0 3 2 3 4 0 2-2 3-5 3z"/><path d="M14 12c3 0 7 1 7 4 0 2-2 3-4 3-2 0-3-2-3-5z"/><path d="M12 14c0 3-1 7-4 7-2 0-3-2-3-4 0-2 2-3 5-3z"/><path d="M10 12c-3 0-7-1-7-4 0-2 2-3 4-3 2 0 3 2 3 5z"/>',
 		car: '<path d="M5 17h14"/><path d="M6.5 17V13l1.8-4.2A2 2 0 0 1 10.1 7.5h3.8a2 2 0 0 1 1.8 1.3L17.5 13v4"/><path d="M4 13h16"/><circle cx="8" cy="17.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>',
 		chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+		gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.6M12 18.9v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.5 12h2.6M18.9 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9"/>',
 		shrink: '<path d="M9 3v6H3"/><path d="M3 9l6-6"/><path d="M15 21v-6h6"/><path d="M21 15l-6 6"/>',
 		close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 		install: '<path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
@@ -65,6 +66,7 @@
 		tiles: {},
 		pending: {},
 		dragging: false,
+		polling: false,
 		timer: null,
 		installEvent: null,
 		sheet: null,
@@ -88,11 +90,22 @@
 			'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
 	}
 
-	function api(params) {
+	function api(params, method) {
 		var qs = Object.keys(params).map(function (k) {
 			return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
 		}).join('&');
-		return fetch(API + '?' + qs, { credentials: 'same-origin', cache: 'no-store' })
+		var opts = { credentials: 'same-origin', cache: 'no-store' };
+		var url = API;
+		if ((method || 'GET').toUpperCase() === 'POST') {
+			/* Les actions d'écriture passent en POST : Jeedom (ajax::init)
+			   refuse une mutation demandée en GET. */
+			opts.method = 'POST';
+			opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
+			opts.body = qs;
+		} else {
+			url = API + '?' + qs;
+		}
+		return fetch(url, opts)
 			.then(function (r) { return r.json(); })
 			.then(function (j) {
 				if (!j || j.state !== 'ok') { throw new Error((j && j.result) ? j.result : 'Erreur API'); }
@@ -141,10 +154,25 @@
 
 	function modeLabel(name) {
 		var n = String(name || '').trim();
+		if (!n) { return ''; }
+		/* On essaie le nom complet avant de couper : « Mode Hors Gel » ne doit
+		   pas devenir « Gel ». */
+		var full = MODE_LABELS[n.toLowerCase()];
+		if (full) { return full; }
 		var w = n.split(/\s+/);
-		if (w.length > 1) { n = w[w.length - 1]; }
-		var k = n.toLowerCase();
-		return MODE_LABELS[k] || n;
+		var k = w[w.length - 1].toLowerCase();
+		return MODE_LABELS[k] || w[w.length - 1];
+	}
+
+	/* Comparaison tolérante des libellés de mode (accents, casse, préfixes
+	   « Mode » / « État ») : la commande peut s'appeler « Mode Hors Gel » alors
+	   que l'état affiché est « Hors gel ». */
+	function normTxt(s) {
+		return String(s === null || s === undefined ? '' : s)
+			.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+			.replace(/\b(mode|state|etat)\b/g, '')
+			.replace(/[^a-z0-9]+/g, ' ')
+			.trim();
 	}
 
 	function hhmm(ts) {
@@ -210,9 +238,12 @@
 					if (isOn(t)) { lightsOn++; }
 				} else if (t.kind === 'switch' && isOn(t)) {
 					others++;
-				} else if (t.kind === 'sensor' && t.state.unit === '°C') {
+				} else if (t.kind === 'sensor' && /°\s*c/i.test(String(t.state.unit || ''))) {
 					var n = num(tileState(t) ? tileState(t).value : null);
 					if (n !== null) { temps.push(n); }
+				} else if (t.kind === 'thermostat' && t.extra && t.extra.temp) {
+					var nt = num(t.extra.temp.value);
+					if (nt !== null) { temps.push(nt); }
 				}
 			});
 		});
@@ -250,9 +281,16 @@
 			exit = '<a class="hb-exitbtn" href="' + esc(EXIT_URL) + '" title="Quitter le plein écran" ' +
 				'aria-label="Quitter le plein écran">' + svg('shrink') + '</a>';
 		}
+		/* Accès permanent à la configuration : en plein écran, la barre Jeedom
+		   est masquée et il n'y avait plus aucun chemin vers les réglages. */
+		var cfg = '';
+		if (CFG_URL) {
+			cfg = '<a class="hb-exitbtn" href="' + esc(CFG_URL) + '" title="Configurer le tableau de bord" ' +
+				'aria-label="Configurer le tableau de bord">' + svg('gear') + '</a>';
+		}
 		headEl.innerHTML = '<div class="hb-head__left"><h1 class="hb-head__title">' + esc(S.home.homeName) + '</h1>' +
 			'<p class="hb-head__sub" id="hb-summary">' + esc(summary()) + '</p></div>' +
-			'<div class="hb-head__right">' + clock + install + exit + '</div>';
+			'<div class="hb-head__right">' + clock + install + cfg + exit + '</div>';
 		var btn = document.getElementById('hb-install');
 		if (btn) {
 			btn.addEventListener('click', function () {
@@ -332,9 +370,11 @@
 	function modeIsActive(t, m) {
 		var c = t.caps || {};
 		var st = c.state ? (val(c.state) || t.state) : t.state;
-		var activeName = String((st && st.display) || '').toLowerCase();
-		if (!activeName) { return false; }
-		return modeLabel(m.name).toLowerCase() === activeName;
+		var b = normTxt(st && st.display);
+		if (!b) { return false; }
+		var a = normTxt(m.name);
+		if (!a) { return false; }
+		return a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1;
 	}
 
 	function thermostatHtml(t, showRoom) {
@@ -667,10 +707,31 @@
 		el.addEventListener('click', detailClick);
 		el.addEventListener('input', detailInput);
 		el.addEventListener('change', detailChange);
+		/* Marque l'appui en cours pour que le rafraîchissement automatique ne
+		   reconstruise pas le panneau sous le doigt. */
+		el.addEventListener('pointerdown', function () {
+			if (S.sheet) { S.sheet.pressing = true; }
+		});
+		var release = function () {
+			if (!S.sheet) { return; }
+			S.sheet.pressing = false;
+			if (S.sheet.retry) {
+				S.sheet.retry = false;
+				setTimeout(refreshDetail, 120);
+			}
+		};
+		el.addEventListener('pointerup', release);
+		el.addEventListener('pointercancel', release);
 	}
 
 	function refreshDetail() {
 		if (!S.sheet || S.sheet.kind !== 'detail' || S.dragging) { return; }
+		/* Ne jamais reconstruire le panneau pendant un appui : le bouton serait
+		   détruit avant que son click ne parte. */
+		if (S.sheet.pressing) {
+			S.sheet.retry = true;
+			return;
+		}
 		var t = S.tiles[String(S.sheet.tile.id)];
 		if (!t) { return; }
 		S.sheet.tile = t;
@@ -863,15 +924,30 @@
 	function setLocal(cmdId, value) {
 		if (!cmdId) { return; }
 		var prev = S.values[cmdId] || {};
-		S.values[cmdId] = { id: cmdId, value: value, display: prev.display || String(value), unit: prev.unit || '' };
+		S.values[cmdId] = { id: cmdId, value: value, display: optimisticDisplay(prev.display, value), unit: prev.unit || '' };
 		S.pending[cmdId] = { value: String(value), until: Date.now() + 8000 };
 		if (!S.dragging) { refreshTiles(); }
+	}
+
+	/* Libellé d'état pendant l'attente de la confirmation : l'ancien libellé
+	   restait affiché (« Allumé » alors que l'appareil venait de passer à 0). */
+	function optimisticDisplay(prev, value) {
+		var v = String(value);
+		var on = (value === true || value === 1 || v === '1' || v.toLowerCase() === 'on');
+		var pairs = [['Allumé', 'Éteint'], ['Ouvert', 'Fermé'], ['Présence', 'Absence'],
+			['Fuite', 'Sec'], ['Fumée', 'Pas de fumée'], ['Actif', 'Inactif']];
+		for (var i = 0; i < pairs.length; i++) {
+			if (prev === pairs[i][0] || prev === pairs[i][1]) {
+				return on ? pairs[i][0] : pairs[i][1];
+			}
+		}
+		return v;
 	}
 
 	function exec(cmdId, value, optimistic) {
 		if (!cmdId) { return Promise.resolve(); }
 		if (optimistic) { setLocal(optimistic.id, optimistic.value); }
-		return api({ action: 'exec', cmd_id: cmdId, value: value === null || value === undefined ? '' : value })
+		return api({ action: 'exec', cmd_id: cmdId, value: value === null || value === undefined ? '' : value }, 'POST')
 			.then(function () { setTimeout(poll, 250); })
 			.catch(function (e) {
 				toast('Échec : ' + e.message);
@@ -1056,9 +1132,10 @@
 	}
 
 	function poll() {
-		if (document.hidden) { return; }
+		if (document.hidden || S.polling) { return; }
 		var ids = collectIds();
 		if (!ids.length) { return; }
+		S.polling = true;
 		api({ action: 'values', ids: ids.join(',') }).then(function (vals) {
 			var changed = false;
 			Object.keys(vals).forEach(function (id) {
@@ -1080,7 +1157,8 @@
 			if (sum) { sum.textContent = summary(); }
 			if (changed) { refreshTiles(); }
 			if (S.sheet && S.sheet.kind === 'detail') { refreshDetail(); }
-		}).catch(function () { status(false); });
+			S.polling = false;
+		}).catch(function () { S.polling = false; status(false); });
 	}
 
 	function schedule() {

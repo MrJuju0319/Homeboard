@@ -180,6 +180,9 @@
 .hb-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
+	/* Sans dense, une tuile haute suivie d'une tuile large laisse un trou
+	   visible dans la grille mobile à 2 colonnes. */
+	grid-auto-flow: row dense;
 	gap: var(--hb-gap);
 	padding: 0 var(--hb-pad);
 }

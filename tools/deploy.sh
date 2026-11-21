@@ -30,15 +30,13 @@ for f in $(find . -name '*.php' -not -path './tools/*'); do
 	php -l "$f" > /dev/null || { echo "ERREUR PHP: $f"; exit 1; }
 done
 
-tar czf /tmp/homeboard.tgz --exclude=./tools --exclude=./screenshots --exclude=./.deploy.env .
-scp -q /tmp/homeboard.tgz "$HOST:/tmp/"
+# rsync plutôt que rm + mv : la synchronisation en place ne supprime jamais le
+# dossier du plugin, donc aucune fenêtre en 404/500 sur les requêtes en cours.
+rsync -az --delete \
+	--exclude '.git' --exclude '.deploy.env' --exclude 'tools' --exclude 'screenshots' --exclude '.gitignore' \
+	./ "$HOST:$PLUGINS/homeboard/"
 
 ssh "$HOST" "set -e
-  rm -rf '$PLUGINS/.homeboard.new'
-  mkdir -p '$PLUGINS/.homeboard.new'
-  tar xzf /tmp/homeboard.tgz -C '$PLUGINS/.homeboard.new'
-  rm -rf '$PLUGINS/homeboard'
-  mv '$PLUGINS/.homeboard.new' '$PLUGINS/homeboard'
   chown -R '$WEBUSER:$WEBUSER' '$PLUGINS/homeboard'
   find '$PLUGINS/homeboard' -type d -exec chmod 755 {} \;
   find '$PLUGINS/homeboard' -type f -exec chmod 644 {} \;

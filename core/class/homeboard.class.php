@@ -47,7 +47,6 @@ class homeboard extends eqLogic {
 				`size` varchar(16) NOT NULL DEFAULT 'normal',
 				`isFavorite` tinyint(1) NOT NULL DEFAULT 0,
 				`pos` int(11) NOT NULL DEFAULT 0,
-				`options` text,
 				PRIMARY KEY (`id`),
 				KEY `room_id` (`room_id`),
 				KEY `cmd_id` (`cmd_id`)
@@ -56,6 +55,12 @@ class homeboard extends eqLogic {
 		foreach ($sql as $query) {
 			DB::getConnection()->exec($query);
 		}
+	}
+
+	/* Suppression des données à la désinstallation du plugin. */
+	public static function dropTables() {
+		DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_tile`');
+		DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_room`');
 	}
 
 	/* ============================================================
@@ -171,13 +176,25 @@ class homeboard extends eqLogic {
 		if (!is_array($rows)) {
 			throw new Exception('Données invalides');
 		}
-		foreach ($rows as $i => $row) {
-			$id = (int) $row['id'];
-			$kind = isset($row['kind']) && $row['kind'] !== '' ? (string) $row['kind'] : 'auto';
-			$size = in_array($row['size'], array('normal', 'wide', 'tall')) ? $row['size'] : 'normal';
-			DB::Prepare('UPDATE homeboard_tile SET room_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
-				array((int) $row['room_id'], trim((string) $row['label']), $kind, (string) $row['icon'],
-					$size, (int) ((bool) $row['isFavorite']), (int) $row['pos'], $id));
+		$db = DB::getConnection();
+		$db->beginTransaction();
+		try {
+			foreach ($rows as $row) {
+				if (!is_array($row) || empty($row['id'])) {
+					continue;
+				}
+				$id = (int) $row['id'];
+				$kind = (isset($row['kind']) && $row['kind'] !== '') ? (string) $row['kind'] : 'auto';
+				$size = (isset($row['size']) && in_array($row['size'], array('normal', 'wide', 'tall'), true)) ? $row['size'] : 'normal';
+				DB::Prepare('UPDATE homeboard_tile SET room_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
+					array((int) (isset($row['room_id']) ? $row['room_id'] : 0), trim((string) (isset($row['label']) ? $row['label'] : '')),
+						$kind, (string) (isset($row['icon']) ? $row['icon'] : ''),
+						$size, (int) (!empty($row['isFavorite'])), (int) (isset($row['pos']) ? $row['pos'] : 0), $id));
+			}
+			$db->commit();
+		} catch (Exception $e) {
+			$db->rollBack();
+			throw $e;
 		}
 	}
 
@@ -320,7 +337,10 @@ class homeboard extends eqLogic {
 			$caps['stop'] = $id($find(array('FLAP_STOP'), 'action'));
 			$caps['slider'] = $id($find(array('FLAP_SLIDER'), 'action'));
 		} elseif ($_kind === 'switch') {
-			$caps['state'] = (int) $_cmd->getId();
+			/* L'état d'une tuile switch doit être une commande d'information :
+		   assigner l'id d'une commande d'action ferait exécuter l'action à
+		   chaque lecture de valeur (stateOf → execCmd). */
+			$caps['state'] = ($_cmd->getType() === 'info') ? (int) $_cmd->getId() : null;
 			$caps['on'] = $id($find(array('ENERGY_ON', 'LIGHT_ON'), 'action'));
 			$caps['off'] = $id($find(array('ENERGY_OFF', 'LIGHT_OFF'), 'action'));
 			if (empty($caps['on'])) {
@@ -339,13 +359,34 @@ class homeboard extends eqLogic {
 		if ($_value === null || $_value === '') {
 			return '';
 		}
-		if ($_cmd->getSubType() === 'binary' || $_cmd->getSubType() === 'string') {
-			if ($_value === '1' || $_value === 1) {
-				return 'Allumé';
+		$sub = $_cmd->getSubType();
+		if ($sub === 'binary') {
+			/* execCmd() peut renvoyer '1', 1, 1.0 ou true selon le plugin. */
+			if (is_bool($_value)) {
+				$on = $_value;
+			} elseif (is_numeric($_value)) {
+				$on = (float) $_value > 0.5;
+			} else {
+				$on = in_array(strtolower(trim((string) $_value)), array('1', 'on', 'true', 'yes'), true);
 			}
-			if ($_value === '0' || $_value === 0) {
-				return 'Éteint';
+			/* Le libellé dépend de la nature du capteur : une ouverture
+			   « Allumé » n'a aucun sens. */
+			$gt = strtoupper(trim((string) $_cmd->getGeneric_type()));
+			if (strpos($gt, 'OPENING') !== false) {
+				return $on ? 'Ouvert' : 'Fermé';
 			}
+			if (strpos($gt, 'PRESENCE') !== false || strpos($gt, 'MOTION') !== false) {
+				return $on ? 'Présence' : 'Absence';
+			}
+			if (strpos($gt, 'WATER_LEAK') !== false) {
+				return $on ? 'Fuite' : 'Sec';
+			}
+			if (strpos($gt, 'SMOKE') !== false) {
+				return $on ? 'Fumée' : 'Pas de fumée';
+			}
+			return $on ? 'Allumé' : 'Éteint';
+		}
+		if ($sub === 'string') {
 			return (string) $_value;
 		}
 		if (is_numeric($_value)) {
@@ -376,6 +417,11 @@ class homeboard extends eqLogic {
 			return null;
 		}
 		$eq = $cmd->getEqLogic();
+		/* Droits par équipement : un utilisateur à accès restreint ne doit pas
+		   voir les tuiles d'un équipement qu'il n'a pas le droit de lire. */
+		if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+			return null;
+		}
 		$kind = (string) $_row['kind'];
 		if ($kind === '' || $kind === 'auto') {
 			$kind = self::kindFromGeneric($cmd->getGeneric_type(), $cmd->getSubType());
@@ -440,6 +486,10 @@ class homeboard extends eqLogic {
 		if (!is_object($cmd) || $cmd->getType() !== 'info') {
 			return array('points' => array());
 		}
+		$eq = $cmd->getEqLogic();
+		if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+			return array('points' => array());
+		}
 		$periods = array(
 			'day' => array('start' => '-24 hours', 'bucket' => 900),
 			'week' => array('start' => '-7 days', 'bucket' => 7200),
@@ -447,14 +497,25 @@ class homeboard extends eqLogic {
 		);
 		$p = isset($periods[$_period]) ? $periods[$_period] : $periods['day'];
 		$start = date('Y-m-d H:i:s', strtotime($p['start']));
-		$rows = DB::Prepare('SELECT `datetime`, `value` FROM history WHERE cmd_id = ? AND `datetime` >= ? ORDER BY `datetime`',
-			array((int) $_cmdId, $start), DB::FETCH_TYPE_ALL);
+		/* history::all() interroge `history` ET `historyArch` : le cron d'archivage
+		   de Jeedom déplace les points de plus de 24 h dans historyArch, donc une
+		   requête SQL directe sur `history` vide les vues 7 j et 30 j. */
+		$rows = history::all((int) $_cmdId, $start, date('Y-m-d H:i:s'));
 		$buckets = array();
 		foreach ((array) $rows as $r) {
-			if (!is_numeric($r['value'])) {
+			/* history::all() renvoie des objets history (getters), pas des
+			   tableaux : on accepte les deux formes. */
+			if (is_object($r)) {
+				$rawDt = method_exists($r, 'getDatetime') ? $r->getDatetime() : null;
+				$rawVal = method_exists($r, 'getValue') ? $r->getValue() : null;
+			} else {
+				$rawDt = isset($r['datetime']) ? $r['datetime'] : null;
+				$rawVal = isset($r['value']) ? $r['value'] : null;
+			}
+			if ($rawDt === null || !is_numeric($rawVal)) {
 				continue;
 			}
-			$ts = strtotime($r['datetime']);
+			$ts = strtotime($rawDt);
 			if ($ts === false) {
 				continue;
 			}
@@ -462,7 +523,7 @@ class homeboard extends eqLogic {
 			if (!isset($buckets[$k])) {
 				$buckets[$k] = array('sum' => 0, 'n' => 0);
 			}
-			$buckets[$k]['sum'] += (float) $r['value'];
+			$buckets[$k]['sum'] += (float) $rawVal;
 			$buckets[$k]['n']++;
 		}
 		ksort($buckets);
@@ -582,13 +643,34 @@ class homeboard extends eqLogic {
 			}
 			$out[] = $room;
 		}
-		/* Tuiles orphelines (pièce supprimée / non assignée) */
+		/* Tuiles orphelines (pièce supprimée / non assignée) : elles doivent
+		   aussi alimenter les favoris et les graphiques, sinon une tuile mise
+		   en favori sans pièce n'apparaît nulle part. */
 		if (!empty($byRoom[0])) {
 			$orphan = array('id' => 0, 'name' => 'Autres', 'icon' => 'home', 'tiles' => array());
 			foreach ($byRoom[0] as $row) {
 				$tile = self::buildTile($row);
-				if ($tile !== null) {
-					$orphan['tiles'][] = $tile;
+				if ($tile === null) {
+					continue;
+				}
+				$orphan['tiles'][] = $tile;
+				if ($tile['favorite']) {
+					$tile['room_name'] = 'Autres';
+					$favorites[] = $tile;
+				}
+				if (!empty($tile['chart']) && !isset($charts[$tile['chart']['cmd_id']])) {
+					$chartObj = cmd::byId((int) $tile['chart']['cmd_id']);
+					$charts[$tile['chart']['cmd_id']] = array(
+						'tile_id' => $tile['id'],
+						'label' => $tile['label'],
+						'room' => 'Autres',
+						'icon' => $tile['icon'],
+						'kind' => $tile['kind'],
+						'cmd_id' => $tile['chart']['cmd_id'],
+						'chart_label' => $tile['chart']['label'],
+						'unit' => $tile['chart']['unit'] !== '' ? $tile['chart']['unit'] : $tile['state']['unit'],
+						'value' => is_object($chartObj) ? $chartObj->execCmd() : '',
+					);
 				}
 			}
 			if (!empty($orphan['tiles'])) {
@@ -621,6 +703,10 @@ class homeboard extends eqLogic {
 			if (!is_object($cmd) || $cmd->getType() !== 'info') {
 				continue;
 			}
+			$eq = $cmd->getEqLogic();
+			if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+				continue;
+			}
 			$value = $cmd->execCmd();
 			$out[$id] = array(
 				'value' => $value,
@@ -644,13 +730,30 @@ class homeboard extends eqLogic {
 			throw new Exception('Cette commande n\'est pas exécutable');
 		}
 		$eq = $cmd->getEqLogic();
-		if (is_object($eq) && function_exists('hasRight') && !hasRight('eqLogic', 'x')) {
+		/* hasRight() est une méthode d'eqLogic (droits par équipement), pas une
+		   fonction globale : l'ancien appel ne vérifiait donc rien. */
+		if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('x')) {
 			throw new Exception('401 Unauthorized');
 		}
 		if ($_value === null || $_value === '') {
 			$cmd->execCmd();
 		} else {
-			$cmd->execCmd(array('slider' => $_value));
+			/* Jeedom attend une clé différente selon le sous-type : 'slider'
+			   pour une commande de type slider, 'select' pour une liste, etc.
+			   Une clé 'slider' sur un select est ignorée silencieusement. */
+			$key = 'slider';
+			switch ($cmd->getSubType()) {
+				case 'select':
+					$key = 'select';
+					break;
+				case 'color':
+					$key = 'color';
+					break;
+				case 'message':
+					$key = 'message';
+					break;
+			}
+			$cmd->execCmd(array($key => $_value));
 		}
 		log::add(self::PLUGIN_ID, 'debug', 'Exécution de ' . $cmd->getHumanName() . ($_value !== null ? ' (' . $_value . ')' : ''));
 		return true;
@@ -663,7 +766,7 @@ class homeboard extends eqLogic {
 	public static function roomIconFor($_name) {
 		$n = strtolower((string) $_name);
 		$map = array(
-			'salon' => 'sofa', 'séjour' => 'sofa', 'sejour' => 'sofa', 'salon' => 'sofa',
+			'salon' => 'sofa', 'séjour' => 'sofa', 'sejour' => 'sofa',
 			'cuisine' => 'kitchen', 'chambre' => 'bed', 'parental' => 'bed', 'amis' => 'child',
 			'bain' => 'bath', 'sdb' => 'bath', 'douche' => 'bath', 'wc' => 'bath',
 			'garage' => 'garage', 'jardin' => 'garden', 'extérieur' => 'garden', 'exterieur' => 'garden',
@@ -679,21 +782,61 @@ class homeboard extends eqLogic {
 		return 'home';
 	}
 
+	/* Normalisation des noms (casse, accents, ponctuation) pour comparer un nom
+	   d'objet Jeedom et un nom de pièce Homeboard. */
+	private static function normName($_s) {
+		$s = strtolower(trim((string) $_s));
+		$s = str_replace(
+			array('à', 'â', 'ä', 'á', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'í', 'ô', 'ö', 'ó', 'ù', 'û', 'ü', 'ú', 'ç', 'ñ', 'œ', '’', "'"),
+			array('a', 'a', 'a', 'a', 'e', 'e', 'e', 'e', 'i', 'i', 'i', 'o', 'o', 'o', 'u', 'u', 'u', 'u', 'c', 'n', 'oe', '', ''),
+			$s
+		);
+		$s = preg_replace('/[^a-z0-9]+/', ' ', $s);
+		return trim(preg_replace('/\s+/', ' ', $s));
+	}
+
+	private static function isWholeWord($_haystack, $_needle) {
+		if ($_needle === '') {
+			return false;
+		}
+		return preg_match('/(^| )' . preg_quote($_needle, '/') . '($| )/', $_haystack) === 1;
+	}
+
 	public static function roomByName($_name) {
-		$n = strtolower(trim((string) $_name));
+		return self::matchRoom($_name, self::rooms(true));
+	}
+
+	/* Même logique, mais sur une liste déjà chargée : scan() appelait rooms()
+	   deux fois par équipement (200 requêtes SQL identiques pour 100 appareils). */
+	private static function matchRoom($_name, array $_rooms) {
+		$n = self::normName($_name);
 		if ($n === '') {
 			return 0;
 		}
-		foreach (self::rooms(true) as $r) {
-			$rn = strtolower(trim((string) $r['name']));
+		$best = 0;
+		$bestLen = 0;
+		foreach ($_rooms as $r) {
+			$rn = self::normName($r['name']);
 			if ($rn === '') {
 				continue;
 			}
-			if ($rn === $n || strpos($n, $rn) !== false || strpos($rn, $n) !== false) {
+			/* 1. Égalité stricte normalisée. */
+			if ($rn === $n) {
 				return (int) $r['id'];
 			}
+			/* 2. Mot entier de part et d'autre (« Chambre » dans « Chambre 2 »). */
+			$match = self::isWholeWord($n, $rn) || self::isWholeWord($rn, $n);
+			/* 3. Préfixe du nom d'objet : « SalonSAM » → « Salon ». Un simple
+			   strpos() créait des collisions (« Webcam » → « WC »). */
+			if (!$match && strlen($rn) >= 4 && strpos($n, $rn) === 0) {
+				$match = true;
+			}
+			if ($match && strlen($rn) > $bestLen) {
+				$best = (int) $r['id'];
+				$bestLen = strlen($rn);
+			}
 		}
-		return 0;
+		return $best;
 	}
 
 	public static function scan() {
@@ -707,6 +850,7 @@ class homeboard extends eqLogic {
 			$used[(int) $u['cmd_id']] = true;
 		}
 		$out = array();
+		$roomsList = self::rooms(true);
 		foreach ((array) $rows as $r) {
 			if (in_array($r['eqType_name'], $blocked, true)) {
 				continue;
@@ -741,18 +885,28 @@ class homeboard extends eqLogic {
 			} elseif (isset($byGt['OPENING'])) {
 				$picks[] = array($byGt['OPENING'], 'switch');
 			}
-			/* sonde d'humidité en plus de la température */
-			if (isset($byGt['TEMPERATURE']) && isset($byGt['HUMIDITY'])) {
-				$picks[] = array($byGt['HUMIDITY'], 'sensor');
+			/* sonde d'humidité en plus de la température (y compris quand la
+			   température vient d'un thermostat) */
+			$hasTemp = isset($byGt['TEMPERATURE']) || isset($byGt['THERMOSTAT_TEMPERATURE']);
+			if ($hasTemp && isset($byGt['HUMIDITY'])) {
+				$already = false;
+				foreach ($picks as $pk) {
+					if ((int) $pk[0]['id'] === (int) $byGt['HUMIDITY']['id']) {
+						$already = true;
+					}
+				}
+				if (!$already) {
+					$picks[] = array($byGt['HUMIDITY'], 'sensor');
+				}
 			}
 			if (!count($picks)) {
 				continue;
 			}
 			$objName = ($r['obj_name'] !== null && $r['obj_name'] !== '') ? $r['obj_name'] : 'Autres';
-			$existingRoom = self::roomByName($objName);
+			$existingRoom = self::matchRoom($objName, $roomsList);
 			$roomTarget = $objName;
 			if ($existingRoom > 0) {
-				foreach (self::rooms(true) as $rr) {
+				foreach ($roomsList as $rr) {
 					if ((int) $rr['id'] === $existingRoom) {
 						$roomTarget = (string) $rr['name'];
 					}
@@ -795,47 +949,56 @@ class homeboard extends eqLogic {
 			throw new Exception('Données invalides');
 		}
 		$rooms = array();
-		foreach (self::rooms(true) as $r) {
-			$rooms[strtolower(trim($r['name']))] = (int) $r['id'];
-		}
 		$maxRoomPos = 0;
 		foreach (self::rooms(true) as $r) {
+			$rooms[strtolower(trim($r['name']))] = (int) $r['id'];
 			$maxRoomPos = max($maxRoomPos, (int) $r['pos']);
 		}
 		$created = 0;
 		$pos = count(self::tiles());
-		foreach ($rows as $row) {
-			$roomName = trim((string) $row['object']);
-			if ($roomName === '') {
-				$roomName = 'Autres';
-			}
-			$key = strtolower($roomName);
-			$roomId = self::roomByName($roomName);
-			if (!$roomId && isset($rooms[$key])) {
-				$roomId = $rooms[$key];
-			}
-			if (!$roomId) {
-				$roomId = self::saveRoom(array(
+		$db = DB::getConnection();
+		$db->beginTransaction();
+		try {
+			foreach ($rows as $row) {
+				if (!is_array($row) || empty($row['cmd_id'])) {
+					continue;
+				}
+				$roomName = trim((string) (isset($row['object']) ? $row['object'] : ''));
+				if ($roomName === '') {
+					$roomName = 'Autres';
+				}
+				$key = strtolower($roomName);
+				$roomId = self::roomByName($roomName);
+				if (!$roomId && isset($rooms[$key])) {
+					$roomId = $rooms[$key];
+				}
+				if (!$roomId) {
+					$roomId = self::saveRoom(array(
+						'id' => 0,
+						'name' => $roomName,
+						'icon' => !empty($row['room_icon']) ? $row['room_icon'] : self::roomIconFor($roomName),
+						'pos' => ++$maxRoomPos,
+						'isVisible' => 1,
+					));
+					$rooms[$key] = $roomId;
+				}
+				self::saveTile(array(
 					'id' => 0,
-					'name' => $roomName,
-					'icon' => isset($row['room_icon']) ? $row['room_icon'] : self::roomIconFor($roomName),
-					'pos' => ++$maxRoomPos,
-					'isVisible' => 1,
+					'room_id' => $roomId,
+					'cmd_id' => (int) $row['cmd_id'],
+					'label' => isset($row['label']) ? $row['label'] : '',
+					'kind' => isset($row['kind']) ? $row['kind'] : 'auto',
+					'icon' => isset($row['icon']) ? $row['icon'] : '',
+					'size' => 'normal',
+					'isFavorite' => !empty($row['favorite']) ? 1 : 0,
+					'pos' => $pos++,
 				));
-				$rooms[$key] = $roomId;
+				$created++;
 			}
-			self::saveTile(array(
-				'id' => 0,
-				'room_id' => $roomId,
-				'cmd_id' => (int) $row['cmd_id'],
-				'label' => isset($row['label']) ? $row['label'] : '',
-				'kind' => isset($row['kind']) ? $row['kind'] : 'auto',
-				'icon' => isset($row['icon']) ? $row['icon'] : '',
-				'size' => 'normal',
-				'isFavorite' => isset($row['favorite']) ? (int) $row['favorite'] : 0,
-				'pos' => $pos++,
-			));
-			$created++;
+			$db->commit();
+		} catch (Exception $e) {
+			$db->rollBack();
+			throw $e;
 		}
 		return array('created' => $created, 'rooms' => count($rooms));
 	}
@@ -848,7 +1011,7 @@ class homeboard extends eqLogic {
 		$q = trim((string) $_query);
 		$limit = max(1, min(100, (int) $_limit));
 		$params = array();
-		$where = "c.type = 'info'";
+		$where = "c.type = 'info' AND e.isEnable = 1";
 		if ($q !== '') {
 			$like = '%' . $q . '%';
 			$where .= ' AND (c.name LIKE ? OR e.name LIKE ?)';
@@ -877,7 +1040,6 @@ class homeboard extends eqLogic {
 	public static function adminData() {
 		$rooms = self::rooms(true);
 		$tiles = array();
-		$byId = array();
 		foreach (self::tiles() as $row) {
 			$cmd = cmd::byId((int) $row['cmd_id']);
 			$row['cmd_name'] = is_object($cmd) ? $cmd->getName() : '(commande supprimée)';
