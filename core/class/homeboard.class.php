@@ -114,40 +114,69 @@ class homeboard extends eqLogic {
 	}
 
 	/* Reprend chaque ligne de homeboard_board et crée l'équipement
-	   correspondant, puis rattache les tuiles. Idempotent : la table d'origine
-	   est renommée à la fin, donc un second passage ne refait rien. */
+	   correspondant, puis rattache les tuiles. Idempotent : un tableau dont le
+	   slug existe déjà est ignoré, et la migration n'est marquée faite qu'à la
+	   fin — une interruption laisse une reprise possible sans doublon. Une
+	   copie JSON des lignes est écrite dans data/ avant toute écriture. */
 	private static function migrateBoardsToEqLogic() {
+		if ((int) config::byKey('migratedEqLogic', self::PLUGIN_ID, 0) === 1) {
+			return;
+		}
 		try {
 			$rows = DB::Prepare('SELECT * FROM homeboard_board ORDER BY pos, id', array(), DB::FETCH_TYPE_ALL);
 		} catch (Exception $e) {
+			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 			return; /* table absente : rien à migrer */
 		} catch (Throwable $e) {
+			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 			return;
 		}
-		if (!is_array($rows)) {
+		if (!is_array($rows) || !count($rows)) {
+			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 			return;
 		}
+
+		/* Copie de sécurité avant toute écriture. */
+		$dir = dirname(__FILE__) . '/../../data';
+		if (is_dir($dir) && is_writable($dir)) {
+			@file_put_contents($dir . '/boards_backup_' . date('Ymd_His') . '.json',
+				json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+		}
+
+		$existing = array();
+		foreach (self::boards() as $b) {
+			$existing[(string) $b['slug']] = (int) $b['id'];
+		}
+
 		$map = array();
 		foreach ($rows as $row) {
+			$slug = (string) $row['slug'];
+			if ($slug !== '' && isset($existing[$slug])) {
+				$map[(int) $row['id']] = $existing[$slug];
+				continue;
+			}
 			$eq = new self();
 			$eq->setName(mb_substr((string) $row['name'], 0, self::LABEL_MAX));
 			$eq->setEqType_name(self::PLUGIN_ID);
 			$eq->setIsEnable(1);
-			$eq->setIsVisible($row['isVisible'] ?? 1);
+			$eq->setIsVisible(isset($row['isVisible']) ? (int) $row['isVisible'] : 1);
 			self::setConfigurationArray($eq, array(
-				'slug' => (string) $row['slug'],
-				'wallMode' => (int) $row['wallMode'],
-				'wallDelay' => (int) $row['wallDelay'],
-				'wallOled' => (int) $row['wallOled'],
-				'wallWidgets' => (string) $row['wallWidgets'],
+				'slug' => $slug,
+				'wallMode' => isset($row['wallMode']) ? (int) $row['wallMode'] : 0,
+				'wallDelay' => isset($row['wallDelay']) ? (int) $row['wallDelay'] : 2,
+				'wallOled' => isset($row['wallOled']) ? (int) $row['wallOled'] : 0,
+				'wallWidgets' => isset($row['wallWidgets']) ? (string) $row['wallWidgets'] : '[]',
 			));
 			$eq->save();
 			$map[(int) $row['id']] = (int) $eq->getId();
 		}
 		foreach ($map as $oldId => $newId) {
-			DB::Prepare('UPDATE homeboard_tile SET eq_id = ? WHERE eq_id = ?', array($newId, $oldId));
+			if ($oldId !== $newId) {
+				DB::Prepare('UPDATE homeboard_tile SET eq_id = ? WHERE eq_id = ?', array($newId, $oldId));
+			}
 		}
 		DB::getConnection()->exec('RENAME TABLE `homeboard_board` TO `homeboard_board_old`');
+		config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 		log::add(self::PLUGIN_ID, 'info', 'Migration : ' . count($map) . ' tableau(x) converti(s) en équipement(s) homeboard');
 	}
 
@@ -208,29 +237,68 @@ class homeboard extends eqLogic {
 		);
 	}
 
-	public static function boards() {
+	/* Tous les tableaux, actifs ou non : l'administration doit pouvoir ouvrir
+	   un tableau désactivé pour le corriger. Les appelants qui n'affichent que
+	   le service (PWA) passent $_onlyEnable = true. */
+	public static function boards($_onlyEnable = false) {
 		$out = array();
-		$defaultId = null;
-		foreach (eqLogic::byType(self::PLUGIN_ID, true) as $eq) {
-			$id = (int) $eq->getId();
-			if ($defaultId === null) {
-				$defaultId = $id;
-			}
-			$out[] = self::boardArray($eq, $defaultId);
+		foreach (eqLogic::byType(self::PLUGIN_ID, (bool) $_onlyEnable) as $eq) {
+			$out[] = self::boardArray($eq);
 		}
 		usort($out, function ($a, $b) { return $a['id'] - $b['id']; });
-		if (count($out)) {
-			foreach ($out as $i => $b) {
-				$out[$i]['isDefault'] = ($i === 0) ? 1 : 0;
-			}
+		$default = self::defaultIdFrom($out);
+		foreach ($out as $i => $b) {
+			$out[$i]['isDefault'] = ($b['id'] === $default) ? 1 : 0;
 		}
 		return $out;
 	}
 
-	/* Tableau par défaut : le premier créé. */
+	/* Tableau par défaut : le premier créé qui soit actif ; à défaut le premier
+	   créé (pour que l'administration ait toujours quelque chose à montrer). */
+	private static function defaultIdFrom($_boards) {
+		foreach ($_boards as $b) {
+			if ((int) $b['isEnable'] === 1) {
+				return (int) $b['id'];
+			}
+		}
+		return count($_boards) ? (int) $_boards[0]['id'] : 0;
+	}
+
 	public static function defaultBoard() {
 		$all = self::boards();
-		return count($all) ? $all[0] : null;
+		$id = self::defaultIdFrom($all);
+		foreach ($all as $b) {
+			if ((int) $b['id'] === $id) {
+				return $b;
+			}
+		}
+		return null;
+	}
+
+	/* Équipement Jeedom d'un tableau (droits, état). */
+	public static function boardEq($_ref = null) {
+		$b = self::board($_ref);
+		if (!is_array($b)) {
+			return null;
+		}
+		$eq = eqLogic::byId((int) $b['id']);
+		if (!is_object($eq) || $eq->getEqType_name() !== self::PLUGIN_ID) {
+			return null;
+		}
+		return $eq;
+	}
+
+	/* Les droits natifs de l'équipement portent sur le tableau lui-même : un
+	   profil restreint sans droit « r » n'ouvre pas le tableau, même en
+	   connaissant son adresse. */
+	private static function assertBoardReadable($_where) {
+		$eq = self::boardEq();
+		if (!is_object($eq)) {
+			return;
+		}
+		if (!$eq->hasRight('r')) {
+			throw new Exception('Accès non autorisé à ce tableau de bord (' . $_where . ')');
+		}
 	}
 
 	/* Résout un tableau par identifiant d'équipement ou par slug. Sans
@@ -241,12 +309,9 @@ class homeboard extends eqLogic {
 		$ref = ($_ref === null || $_ref === '') ? self::currentBoardRef() : $_ref;
 		if ($ref !== null && $ref !== '') {
 			if (is_numeric($ref)) {
-				$eq = eqLogic::byId((int) $ref);
-				if (is_object($eq) && $eq->getEqType_name() === self::PLUGIN_ID) {
-					foreach (self::boards() as $b) {
-						if ($b['id'] === (int) $eq->getId()) {
-							return $b;
-						}
+				foreach (self::boards() as $b) {
+					if ($b['id'] === (int) $ref) {
+						return $b;
 					}
 				}
 			} else {
@@ -402,8 +467,22 @@ class homeboard extends eqLogic {
 		/* Un tableau désactivé dans Jeedom n'est pas servi : voir board(). */
 	}
 
+	/* Appelé par DB::remove() sur tous les chemins de suppression, y compris le
+	   bouton standard de Jeedom : le dernier tableau ne peut pas partir.
+	   La désinstallation du plugin passe aussi par là, mais Jeedom encadre
+	   chaque suppression d'un try/catch : l'exception n'y bloque rien. */
 	public function preRemove() {
+		$others = 0;
+		foreach (self::boards() as $b) {
+			if ((int) $b['id'] !== (int) $this->getId()) {
+				$others++;
+			}
+		}
+		if ($others === 0) {
+			throw new Exception('Impossible de supprimer le dernier tableau de bord');
+		}
 		DB::Prepare('DELETE FROM homeboard_tile WHERE eq_id = ?', array((int) $this->getId()));
+		return true;
 	}
 
 	public static function bySlug($_slug) {
@@ -1121,6 +1200,9 @@ class homeboard extends eqLogic {
 	   (pièce cachée, ou équipement sans droit de lecture) reste exécutable
 	   par l'API alors qu'elle n'existe plus à l'écran. */
 	public static function accessibleTiles($_reload = false) {
+		/* Le tableau lui-même a des droits : sans « r » sur l'équipement, ses
+		   tuiles ne sont ni affichées ni exécutables. */
+		self::assertBoardReadable('tuiles');
 		$bid = self::boardId();
 		if (isset(homeboardState::$tilesCache[$bid]) && !$_reload) {
 			return homeboardState::$tilesCache[$bid];
@@ -1351,6 +1433,7 @@ class homeboard extends eqLogic {
 		if (is_array($b) && isset($b['isEnable']) && (int) $b['isEnable'] !== 1) {
 			throw new Exception('Ce tableau de bord est désactivé dans Jeedom');
 		}
+		self::assertBoardReadable('layout');
 		$rooms = self::rooms(false);
 		/* Source unique : les tuiles accessibles. Ce que l'écran affiche et ce
 		   que l'API autorise doivent être la même liste, sinon un bouton peut

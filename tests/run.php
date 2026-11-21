@@ -12,7 +12,7 @@
 $pure = in_array('--pure', $argv, true);
 $failed = 0;
 $passed = 0;
-$GLOBALS['hbTestIds'] = array('tile' => array(), 'room' => array(), 'scenario' => array(), 'board' => array());
+$GLOBALS['hbTestIds'] = array('tile' => array(), 'room' => array(), 'scenario' => array(), 'board' => array(), 'user' => array());
 
 function check($_name, $_cond, $_detail = '') {
 	global $failed, $passed;
@@ -175,6 +175,9 @@ register_shutdown_function(function () {
 		foreach ($ids['scenario'] as $id) {
 			$sc = scenario::byId((int) $id);
 			if (is_object($sc)) { $sc->remove(); }
+		}
+		foreach ($ids['user'] as $id) {
+			DB::Prepare('DELETE FROM user WHERE id = ?', array((int) $id));
 		}
 		foreach ($ids['board'] as $id) {
 			$eq = eqLogic::byId((int) $id);
@@ -386,6 +389,93 @@ if (count(homeboard::boards()) === 1) {
 homeboard::useBoard($defId);
 check('retour au tableau par défaut', homeboard::boardId() === $defId);
 check('tuiles du tableau par défaut intactes', count(homeboard::tiles()) === $beforeTiles);
+
+echo "\n[14] Tableaux désactivés et droits\n";
+
+/* Tableau de test : on vérifie qu'un tableau désactivé reste résolvable en
+   administration, et que l'affichage le refuse explicitement. */
+$b3 = track('board', homeboard::createBoard(array('name' => 'ZZ tableau inactif')));
+$b3row = null;
+foreach (homeboard::boards() as $b) {
+	if ((int) $b['id'] === $b3) { $b3row = $b; }
+}
+check('tableau de test créé', is_array($b3row));
+$b3eq = eqLogic::byId($b3);
+$b3eq->setIsEnable(0);
+$b3eq->save();
+
+$resolved = homeboard::board($b3row['slug']);
+check('un tableau désactivé reste résolvable par son slug', is_array($resolved) && (int) $resolved['id'] === $b3, is_array($resolved) ? (string) $resolved['id'] : 'null');
+$resolved = homeboard::board((string) $b3);
+check('un tableau désactivé reste résolvable par son id', is_array($resolved) && (int) $resolved['id'] === $b3);
+check('il n est pas compté comme tableau par défaut', (int) $resolved['isDefault'] === 0);
+check('le tableau par défaut est bien un tableau actif', (int) homeboard::defaultBoard()['isEnable'] === 1);
+
+homeboard::useBoard($b3);
+check('affichage refusé pour un tableau désactivé', throwsSomething(function () {
+	homeboard::getLayout();
+}));
+homeboard::useBoard($defId);
+check('retour au tableau actif', homeboard::boardId() === $defId);
+
+/* Droits propres au tableau : profil restreint sans « r » sur l'équipement. */
+$login = 'zz_hb_test_' . substr((string) mt_rand(1000, 9999), 0, 4);
+$u = new user();
+$u->setLogin($login);
+$u->setPassword('Test-' . mt_rand(100000, 999999));
+$u->setProfils('restricted');
+$u->setEnable(1);
+$u->save();
+track('user', (int) $u->getId());
+$u = user::byLogin($login);
+check('profil restreint créé', is_object($u) && $u->getProfils() === 'restricted');
+
+$savedUser = isset($_SESSION['user']) ? $_SESSION['user'] : null;
+$_SESSION['user'] = $u;
+homeboard::useBoard($defId);
+check('sans droit r, le tableau est refusé', throwsSomething(function () {
+	homeboard::getLayout();
+}));
+check('sans droit r, aucune action autorisée', throwsSomething(function () {
+	homeboard::allowedActions(true);
+}));
+
+$u->setRights('eqLogic' . $defId, 'r');
+$u->save();
+$u = user::byLogin($login);
+$_SESSION['user'] = $u;
+homeboard::useBoard($defId);
+$eqDef = eqLogic::byId($defId);
+check('avec droit r, l équipement répond', $eqDef->hasRight('r', $u));
+check('le tableau redevient lisible', throwsSomething(function () {
+	homeboard::getLayout();
+}) === false);
+
+$_SESSION['user'] = $savedUser;
+
+/* On retire le tableau de test pour se retrouver dans le cas « un seul
+   tableau », puis on appelle preRemove directement : il doit refuser sans rien
+   supprimer. */
+homeboard::useBoard($b3);
+homeboard::deleteBoard($b3);
+homeboard::useBoard($defId);
+check('tableau de test retiré', count(homeboard::boards()) === 1, (string) count(homeboard::boards()));
+
+$eqLast = eqLogic::byId($defId);
+$others = 0;
+foreach (homeboard::boards() as $b) {
+	if ((int) $b['id'] !== $defId) { $others++; }
+}
+if ($others === 0) {
+	check('preRemove refuse le dernier tableau', throwsSomething(function () use ($eqLast) {
+		$eqLast->preRemove();
+	}));
+	check('le dernier tableau est toujours là', is_object(eqLogic::byId($eqLast->getId())));
+} else {
+	echo "  ...  plusieurs tableaux : garde-fou preRemove non testé\n";
+}
+
+homeboard::useBoard($defId);
 
 echo "\n$passed test(s) passé(s), $failed échec(s)\n";
 exit($failed === 0 ? 0 : 1);

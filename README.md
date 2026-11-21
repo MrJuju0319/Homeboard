@@ -142,10 +142,23 @@ Chaque tableau porte :
 Le **slug** est calculé au premier enregistrement à partir du nom et ne change
 plus ensuite : renommer le tableau ne casse pas les adresses déjà installées.
 
-Le **périmètre des droits** suit le tableau : les commandes exécutables sont
-celles des tuiles accessibles du tableau courant, et une tuile d'un autre tableau
-ne peut être ni modifiée ni supprimée en changeant l'identifiant envoyé à l'API.
-Un tableau **désactivé** n'est plus servi à son adresse.
+Le **périmètre des droits** suit le tableau :
+
+- les droits natifs de l'équipement s'appliquent : un profil **restreint** sans
+  droit `r` sur le tableau ne l'ouvre pas, même en connaissant son adresse, et
+  aucune de ses tuiles n'est exécutable ;
+- les commandes exécutables sont celles des tuiles accessibles du tableau
+  courant, et une tuile d'un autre tableau ne peut être ni modifiée ni supprimée
+  en changeant l'identifiant envoyé à l'API.
+
+Un tableau **désactivé** (`Actif` décoché) n'est plus servi à son adresse : la
+page répond « Ce tableau de bord est désactivé dans Jeedom ». Il reste en
+revanche ouvrable et modifiable dans l'administration — on ne bascule jamais
+silencieusement vers un autre tableau, sinon on éditerait les tuiles du mauvais.
+
+Le **dernier tableau ne peut pas être supprimé**, y compris par le bouton
+standard de Jeedom : le refus est dans `preRemove()`, donc il couvre tous les
+chemins, et le bouton l'explique au lieu de ne rien faire.
 
 Le plugin n'a plus de configuration propre pour les tableaux : la page
 `Configuration` du plugin ne garde que ce qui est commun (nom de la maison,
@@ -153,8 +166,17 @@ horloge, rythme de rafraîchissement) et les pièces.
 
 > Migration depuis une version antérieure à 0.6 : les tableaux qui vivaient dans
 > la table `homeboard_board` sont convertis en équipements au premier chargement,
-> et la table d'origine est renommée `homeboard_board_old` (jamais supprimée
-> d'office). Elle peut être effacée une fois les tableaux vérifiés.
+> une copie JSON des lignes est écrite dans `plugins/homeboard/data/`, puis la
+> table d'origine est renommée `homeboard_board_old` (jamais supprimée d'office).
+> La migration est idempotente (un slug déjà présent est réutilisé, un indicateur
+> `migratedEqLogic` l'empêche de repasser). `homeboard_board_old` peut être
+> effacée une fois les tableaux vérifiés.
+
+La vue plein écran dans Jeedom
+(`index.php?v=d&p=homeboard&m=homeboard&board=<id|slug>`) demande seulement une
+session, pas le profil administrateur : un utilisateur restreint voit le tableau
+s'il en a le droit. La gestion des tableaux, elle, reste réservée aux
+administrateurs.
 
 ## Scènes et boutons
 

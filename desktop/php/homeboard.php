@@ -12,13 +12,16 @@
  * tableau est demandée : index.php?v=d&p=homeboard&m=homeboard&board=<id|slug>.
  */
 
-if (!isConnect('admin')) {
-	throw new Exception('{{401 - Accès non autorisé}}');
-}
-
+/* Vue d'affichage : simple session, pas de profil administrateur (le lien de
+   configuration y est masqué pour les autres profils). Le contrôle admin ne
+   concerne que la gestion des tableaux, plus bas. */
 if ((string) init('board') !== '' || (string) init('b') !== '') {
 	require dirname(__FILE__) . '/homeboard_live.php';
 	return;
+}
+
+if (!isConnect('admin')) {
+	throw new Exception('{{401 - Accès non autorisé}}');
 }
 
 $plugin = plugin::byId('homeboard');
@@ -61,6 +64,10 @@ if ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !
 	$hbScheme = 'https';
 }
 $hbHost = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+/* Hôte validé avant de construire une URL à copier : nom ou IP, port éventuel. */
+if (!preg_match('/^[A-Za-z0-9]([A-Za-z0-9.\-]*[A-Za-z0-9])?(:[0-9]{1,5})?$/', $hbHost)) {
+	$hbHost = '';
+}
 $hbBase = $hbHost !== ''
 	? $hbScheme . '://' . $hbHost
 	: rtrim((string) network::getNetworkAccess('internal'), '/');
@@ -1012,6 +1019,29 @@ $hbIcons = homeboard::iconList();
 			applyEqId(id, json ? json.value : '[]');
 		}, 260);
 	});
+
+	/* Un seul tableau : le bouton de suppression standard est neutralisé, sinon
+	   le dernier partirait et l'application n'aurait plus rien à afficher. Le
+	   serveur refuse de son côté (preRemove), ceci évite l'aller-retour. */
+	var nbBoards = <?php echo count($eqLogics); ?>;
+	if (nbBoards <= 1) {
+		var btRemove = document.querySelector('.eqLogicAction[data-action="remove"]');
+		if (btRemove) {
+			btRemove.classList.add('disabled');
+			btRemove.style.opacity = '0.5';
+			btRemove.setAttribute('title', '{{Le dernier tableau de bord ne peut pas être supprimé}}');
+			/* Le clic est intercepté avant le gestionnaire du core : on explique
+			   au lieu de laisser un bouton qui ne fait rien. */
+			btRemove.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				jeedomUtils.showAlert({
+					message: '{{Le dernier tableau de bord ne peut pas être supprimé : crée d\'abord un autre tableau.}}',
+					level: 'warning'
+				});
+			}, true);
+		}
+	}
 
 	/* Après une sauvegarde, le core recharge la page avec ?id= : eqId vient du
 	   serveur, il suffit de charger les tuiles. */
