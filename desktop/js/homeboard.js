@@ -647,12 +647,27 @@
 			(modesHtml ? '<div class="hb-thermo__modes">' + modesHtml + '</div>' : '') +
 			'</div>' +
 			'<div class="hb-thermo__foot">' +
-			(c.setSetpoint ? '<div class="hb-thermo__target">' +
-				'<button class="hb-step" data-act="minus" aria-label="Diminuer">−</button>' +
-				'<div class="hb-thermo__set">' + fmt(cur, 1) + '<small>°C</small></div>' +
-				'<button class="hb-step" data-act="plus" aria-label="Augmenter">+</button>' +
-				'</div>' : '<div></div>') +
+			(c.setSetpoint ? thermostatSetpointHtml(t) : '<div></div>') +
 			'<div class="hb-thermo__name">' + esc(showRoom && t.room_name ? t.room_name : t.label) + '</div>' +
+			'</div>';
+	}
+
+	/* Consigne réglable d'un geste : un curseur dans la tuile, borné et pas-à-pas
+	   selon la configuration de la commande Jeedom (spMin / spMax / spStep). */
+	function thermostatSetpointHtml(t) {
+		var c = t.caps || {};
+		var cur = num(val(c.setpoint) ? val(c.setpoint).value : null);
+		var min = num(c.spMin), max = num(c.spMax), step = num(c.spStep);
+		if (min === null) { min = 5; }
+		if (max === null || max <= min) { max = min + 25; }
+		if (step === null || step <= 0) { step = 0.5; }
+		var shown = (cur === null) ? min : Math.min(max, Math.max(min, cur));
+		var pct = Math.round((shown - min) / (max - min) * 100);
+		return '<div class="hb-thermo__target">' +
+			'<div class="hb-thermo__set" data-setpoint>' + fmt(cur, 1) + '<small>°C</small></div>' +
+			'<input class="hb-steprange" type="range" data-range="setpoint" min="' + min + '" max="' + max +
+			'" step="' + step + '" value="' + shown + '" data-fill="' + pct + '"' +
+			(cur === null ? ' data-unknown="1"' : '') + ' aria-label="Consigne de température">' +
 			'</div>';
 	}
 
@@ -909,10 +924,22 @@
 			html += '<div class="hb-detail__value">' + esc(temp ? temp.display : '—') +
 				'<small>' + esc((temp && temp.unit) || '°C') + '</small></div>';
 			if (c.setSetpoint) {
-				html += '<div class="hb-detail__row">' +
-					'<button class="hb-bigbtn hb-bigbtn--step" data-act="minus" aria-label="Diminuer">−</button>' +
-					'<div class="hb-detail__target">' + fmt(setp, 1) + '<small>°C</small></div>' +
-					'<button class="hb-bigbtn hb-bigbtn--step" data-act="plus" aria-label="Augmenter">+</button></div>';
+				/* Consigne au curseur : la plage et le pas viennent de la
+				   configuration de la commande Jeedom, donc le serveur et
+				   l'interface parlent de la même grille. */
+				var smin = num(c.spMin), smax = num(c.spMax), sstep = num(c.spStep);
+				if (smin === null) { smin = 5; }
+				if (smax === null || smax <= smin) { smax = smin + 25; }
+				if (sstep === null || sstep <= 0) { sstep = 0.5; }
+				var cur = (setp === null) ? smin : Math.min(smax, Math.max(smin, setp));
+				var spct = Math.round((cur - smin) / (smax - smin) * 100);
+				html += '<div class="hb-setp">' +
+					'<div class="hb-setp__target" data-target>' + fmt(cur, 1) + '<small>°C</small></div>' +
+					'<input class="hb-setp__range" type="range" data-range="setpoint" min="' + smin +
+					'" max="' + smax + '" step="' + sstep + '" value="' + cur + '" data-fill="' + spct +
+					'" aria-label="Consigne de température">' +
+					'<div class="hb-setp__ends"><span>' + fmt(smin, 0) + '°</span><span>' + fmt(smax, 0) + '°</span></div>' +
+					'</div>';
 			}
 			if (c.modes && c.modes.length) {
 				html += '<div class="hb-seg">' + c.modes.map(function (m) {
@@ -1014,9 +1041,6 @@
 		if (act === 'toggle') {
 			toggle(t);
 			setTimeout(refreshDetail, 600);
-		} else if (act === 'plus' || act === 'minus') {
-			stepSetpoint(t, act);
-			setTimeout(refreshDetail, 600);
 		} else if (act === 'mode') {
 			Array.prototype.forEach.call(S.sheet.el.querySelectorAll('.hb-seg__btn'), function (p) {
 				p.classList.toggle('is-active', p === b);
@@ -1052,8 +1076,15 @@
 		if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
 		S.dragging = true;
 		e.target.style.setProperty('--hb-fill', fillPct(e.target) + '%');
+		if (e.target.getAttribute('data-range') === 'setpoint') {
+			var tgt = S.sheet.el.querySelector('[data-target]');
+			if (tgt) {
+				tgt.innerHTML = fmt(Number(e.target.value), 1) + '<small>°C</small>';
+			}
+			return;
+		}
 		var pct = S.sheet.el.querySelector('.hb-slider__pct');
-		if (pct) { pct.textContent = fillPct(e.target) + ' %'; }
+		if (pct) { pct.textContent = fillPct(e.target) + '%'; }
 	}
 
 	/* Position relative du curseur dans sa plage réelle (min/max lus côté
@@ -1070,7 +1101,16 @@
 		if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
 		S.dragging = false;
 		var t = S.sheet && S.sheet.tile;
-		if (!t || !t.caps || !t.caps.briSet) { return; }
+		if (!t || !t.caps) { return; }
+		if (e.target.getAttribute('data-range') === 'setpoint') {
+			/* Une seule requête, au relâchement du curseur. */
+			if (!t.caps.setSetpoint || !canAct(t)) { return; }
+			haptic();
+			exec(t.caps.setSetpoint, e.target.value, { id: t.caps.setpoint, value: e.target.value });
+			setTimeout(refreshDetail, 600);
+			return;
+		}
+		if (!t.caps.briSet) { return; }
 		haptic();
 		exec(t.caps.briSet, e.target.value, { id: t.caps.bri, value: e.target.value });
 		setTimeout(refreshDetail, 600);
@@ -1166,6 +1206,7 @@
 				'</div></div>';
 		}
 		sectionsEl.innerHTML = html;
+		applyFillVars(sectionsEl);
 		scheduleNavFollow();
 	}
 
@@ -1187,6 +1228,7 @@
 				var src = fav && S.favById[id] ? S.favById[id] : t;
 				var wrap = document.createElement('div');
 				wrap.innerHTML = tileHtml(src, fav);
+				applyFillVars(wrap);
 				if (el.parentNode) { el.parentNode.replaceChild(wrap.firstChild, el); }
 			});
 		});
@@ -1323,32 +1365,11 @@
 		exec(t.cmd_id, '');
 	}
 
-	function stepSetpoint(t, dir) {
-		var c = t.caps || {};
-		if (!c.setSetpoint || !canAct(t)) { return; }
-		var cur = num(val(c.setpoint) ? val(c.setpoint).value : null);
-		if (cur === null) {
-			/* Sans consigne réelle, on ne devine pas : envoyer une valeur
-			   arbitraire à un thermostat est pire que ne rien faire. */
-			toast('Consigne indisponible — réessaie dans un instant');
-			return;
-		}
-		var step = num(c.spStep) || 0.5;
-		var min = num(c.spMin); if (min === null) { min = 5; }
-		var max = num(c.spMax); if (max === null) { max = 30; }
-		var next = Math.round((cur + (dir === 'plus' ? step : -step)) / step) * step;
-		next = Math.max(min, Math.min(max, Math.round(next * 100) / 100));
-		haptic();
-		exec(c.setSetpoint, next, { id: c.setpoint, value: next });
-	}
-
 	function onAct(t, el) {
 		var act = el.getAttribute('data-act');
 		var c = t.caps || {};
 		if (!canAct(t)) { return; }
-		if (act === 'plus' || act === 'minus') {
-			stepSetpoint(t, act);
-		} else if (act === 'mode') {
+		if (act === 'mode') {
 			var siblings = el.parentNode ? el.parentNode.querySelectorAll('.hb-mode') : [];
 			Array.prototype.forEach.call(siblings, function (p) {
 				p.classList.toggle('is-active', p === el);
@@ -1391,6 +1412,8 @@
 			}
 			var el = e.target.closest ? e.target.closest('[data-tile]') : null;
 			if (!el) { return; }
+			/* Le curseur de consigne gère son propre geste. */
+			if (e.target.closest && e.target.closest('input[type="range"]')) { return; }
 			if (press.fired) { press.fired = false; return; }
 			var t = S.tiles[el.getAttribute('data-tile')];
 			if (!t) { return; }
@@ -1441,6 +1464,9 @@
 
 		root.addEventListener('pointerdown', function (e) {
 			if (!e.target.closest) { return; }
+			/* Un curseur dans la tuile : le geste appartient au curseur, pas à
+			   la tuile (ni appui long, ni ouverture de la feuille). */
+			if (e.target.closest('input[type="range"]')) { return; }
 			var el = e.target.closest('[data-tile]');
 			if (!el || e.target.closest('[data-act]')) { return; }
 			press.x = e.clientX;
@@ -1459,6 +1485,29 @@
 				}
 				if (t) { openDetail(t); }
 			}, 480);
+		});
+
+		/* Consigne réglable depuis la tuile : retour visuel pendant le
+		   glissement, une seule requête au relâchement. */
+		root.addEventListener('input', function (e) {
+			var inp = e.target;
+			if (!inp.matches || !inp.matches('input[data-range="setpoint"]')) { return; }
+			S.dragging = true;
+			inp.style.setProperty('--hb-fill', fillPct(inp) + '%');
+			var card = inp.closest('[data-tile]');
+			var lab = card ? card.querySelector('[data-setpoint]') : null;
+			if (lab) { lab.innerHTML = fmt(Number(inp.value), 1) + '<small>°C</small>'; }
+		});
+
+		root.addEventListener('change', function (e) {
+			var inp = e.target;
+			if (!inp.matches || !inp.matches('input[data-range="setpoint"]')) { return; }
+			S.dragging = false;
+			var card = inp.closest('[data-tile]');
+			var t = card ? S.tiles[card.getAttribute('data-tile')] : null;
+			if (!t || !t.caps || !t.caps.setSetpoint || !canAct(t)) { return; }
+			haptic();
+			exec(t.caps.setSetpoint, inp.value, { id: t.caps.setpoint, value: inp.value });
 		});
 
 		root.addEventListener('pointermove', function (e) {

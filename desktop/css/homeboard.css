@@ -1921,3 +1921,122 @@ body.hb-standalone #hb-root {
 	display: inline-block;
 	word-break: break-all;
 }
+
+/* ---------- Consigne de température au curseur ---------- */
+
+/* La tuile thermostat empile la consigne (valeur + curseur) puis le nom. */
+.hb-thermo__foot {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 6px;
+	padding-top: 10px;
+}
+
+.hb-thermo__target {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.hb-thermo__set {
+	flex: 0 0 auto;
+	min-width: 52px;
+	text-align: left;
+	font-size: 16px;
+}
+
+/* Curseur commun à la tuile et à la feuille de détail : cible de 40 px de
+   haut, piste de 8 px, pouce de 22 px. touch-action:none pour que le
+   glissement règle la consigne au lieu de faire défiler la page. */
+.hb-steprange,
+.hb-setp__range {
+	flex: 1 1 auto;
+	width: 100%;
+	min-width: 0;
+	height: 40px;
+	margin: 0;
+	-webkit-appearance: none;
+	appearance: none;
+	background: transparent;
+	cursor: pointer;
+	touch-action: none;
+}
+
+.hb-steprange::-webkit-slider-runnable-track,
+.hb-setp__range::-webkit-slider-runnable-track {
+	height: 8px;
+	border-radius: 999px;
+	background: linear-gradient(90deg, var(--hb-accent) var(--hb-fill, 50%), #2a2a2e var(--hb-fill, 50%));
+}
+
+.hb-steprange::-webkit-slider-thumb,
+.hb-setp__range::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 22px;
+	height: 22px;
+	margin-top: -7px;
+	border-radius: 50%;
+	background: #f4f4f5;
+	border: 2px solid #0a0a0b;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+
+.hb-steprange::-moz-range-track,
+.hb-setp__range::-moz-range-track {
+	height: 8px;
+	border-radius: 999px;
+	background: #2a2a2e;
+}
+
+.hb-steprange::-moz-range-progress,
+.hb-setp__range::-moz-range-progress {
+	height: 8px;
+	border-radius: 999px;
+	background: var(--hb-accent);
+}
+
+.hb-steprange::-moz-range-thumb,
+.hb-setp__range::-moz-range-thumb {
+	width: 22px;
+	height: 22px;
+	border: 2px solid #0a0a0b;
+	border-radius: 50%;
+	background: #f4f4f5;
+}
+
+/* Consigne inconnue : le curseur reste utilisable, mais atténué. */
+.hb-steprange[data-unknown] {
+	opacity: 0.55;
+}
+
+/* Feuille de détail : grande valeur, curseur pleine largeur, bornes. */
+.hb-setp {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 2px;
+	margin: 6px 0 16px;
+}
+
+.hb-setp__target {
+	text-align: center;
+	font-size: 30px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	color: var(--hb-accent);
+}
+
+.hb-setp__target small {
+	font-size: 14px;
+	font-weight: 500;
+	margin-left: 2px;
+}
+
+.hb-setp__ends {
+	display: flex;
+	justify-content: space-between;
+	font-size: 11px;
+	color: var(--hb-muted);
+	padding: 0 2px;
+}
