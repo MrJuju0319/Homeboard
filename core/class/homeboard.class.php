@@ -502,7 +502,7 @@ class homeboard extends eqLogic {
 			$caps['colorSet'] = $id($find(array('LIGHT_SET_COLOR'), 'action'));
 			$rng = $rangeOf($find(array('LIGHT_SLIDER', 'LIGHT_SET_BRIGHTNESS'), 'action'), 0, 100, 1);
 			$caps['briMin'] = $rng[0];
-			$caps['briMax'] = $rng[1];
+			$caps['briMax'] = homeboardPure::alignMax($rng[0], $rng[1], $rng[2]);
 			$caps['briStep'] = $rng[2];
 		} elseif ($_kind === 'thermostat') {
 			$caps['state'] = $id($find(array('THERMOSTAT_STATE_NAME'), 'info'));
@@ -511,7 +511,9 @@ class homeboard extends eqLogic {
 			$caps['setSetpoint'] = $id($find(array('THERMOSTAT_SET_SETPOINT'), 'action'));
 			$rng = $rangeOf($find(array('THERMOSTAT_SET_SETPOINT'), 'action'), 5, 30, 0.5);
 			$caps['spMin'] = $rng[0];
-			$caps['spMax'] = $rng[1];
+			/* Borne haute ramenée sur la grille du pas : sinon l'interface
+			   annonce une valeur que le curseur ne peut pas atteindre. */
+			$caps['spMax'] = homeboardPure::alignMax($rng[0], $rng[1], $rng[2]);
 			$caps['spStep'] = $rng[2];
 			$modes = array();
 			foreach ($byGt as $gt => $cmds) {

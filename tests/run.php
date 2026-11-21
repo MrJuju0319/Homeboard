@@ -125,6 +125,15 @@ check('maximum hors grille, demande au-delà', homeboardPure::clampStep(50, 5, 1
 check('sans pas : simple bornage', homeboardPure::clampStep(42, '', '', '') === 42.0);
 check('valeur non numérique refusée', homeboardPure::clampStep('abc', 0, 100, 1) === null);
 
+echo "\n[5 bis] Borne haute alignée sur le pas\n";
+check('min 5, max 10, pas 3 → 8', homeboardPure::alignMax(5, 10, 3) === 8.0, (string) homeboardPure::alignMax(5, 10, 3));
+check('min 5, max 27, pas 0,5 → 27', homeboardPure::alignMax(5, 27, 0.5) === 27.0, (string) homeboardPure::alignMax(5, 27, 0.5));
+check('min 0, max 100, pas 1 → 100', homeboardPure::alignMax(0, 100, 1) === 100.0);
+check('min 10, max 25, pas 0,5 → 25', homeboardPure::alignMax(10, 25, 0.5) === 25.0);
+check('sans pas : borne inchangée', homeboardPure::alignMax(0, 254, '') === 254.0);
+check('max déjà aligné : inchangé', homeboardPure::alignMax(5, 8, 3) === 8.0);
+check('max sous le minimum : renvoyé tel quel', homeboardPure::alignMax(10, 5, 2) === 5.0);
+
 if ($pure) {
 	echo "\n$passed test(s) passé(s), $failed échec(s) — mode pur\n";
 	exit($failed === 0 ? 0 : 1);

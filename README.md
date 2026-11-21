@@ -10,8 +10,8 @@ aucun build : PHP + JS natif.
 - **Tuiles** pilotées par une seule commande Jeedom ; le plugin retrouve seul les
   commandes sœurs de l'équipement (on/off, variation, consigne, modes, volet).
 - Types reconnus automatiquement : lumière (avec curseur de luminosité),
-  thermostat (température, consigne ±0,5 °C, modes), sonde, prise/interrupteur,
-  volet, caméra.
+  thermostat (température, **consigne au curseur**, modes), sonde,
+  prise/interrupteur, volet, caméra.
 - **Graphiques** : vue dédiée (une carte par commande historisée, sparkline 24 h)
   et feuille de détail au clic — courbe 24 h / 7 j / 30 j, min · moyenne · max ·
   dernière valeur. Un clic sur une tuile « sonde » ouvre directement sa courbe.
@@ -20,8 +20,10 @@ aucun build : PHP + JS natif.
   (seules les tuiles dont la valeur change sont redessinées).
 - **Bornes réelles** : les plages (min/max/pas) des thermostats et des
   variateurs sont lues dans la configuration des commandes Jeedom (repli
-  5–30 °C / 0,5 °C et 0–100). Sans consigne connue, les boutons +/− refusent
-  d'envoyer une valeur devinée.
+  5–30 °C / 0,5 °C et 0–100). La borne haute est ramenée sur la grille du pas
+  (`alignMax`) : avec min 5, max 10 et pas 3, l'interface annonce 8, la dernière
+  valeur réellement atteignable. Le pas est aussi appliqué côté serveur, donc un
+  curseur ne peut pas envoyer une valeur hors grille.
 - **Import** : les commandes déjà tuilées sont ignorées côté serveur (compteur
   « déjà présente(s) ») et la pièce retenue par l'analyse est conservée.
 - **Scènes et boutons** : une tuile peut déclencher un scénario Jeedom ou une
@@ -80,16 +82,27 @@ aucun build : PHP + JS natif.
   barre et la bande défile automatiquement pour la recentrer. Un tap sur une
   pièce filtre la vue ; « Tout » revient à l'ensemble.
 - **Appui court** sur une tuile = on/off. **Appui long** (480 ms) = feuille de
-  détail : luminosité + préréglages 20/50/75/100 % (lumière), consigne et modes
-  en gros boutons (thermostat), ouvrir/stop/fermer (volet), courbe (sonde).
+  détail : luminosité + préréglages 20/50/75/100 % (lumière), consigne au curseur
+  et modes (thermostat), ouvrir/stop/fermer (volet), courbe (sonde).
+- **Consigne au curseur** : la tuile thermostat porte un curseur pleine largeur,
+  la feuille de détail un curseur avec la grande valeur au centre et les bornes
+  affichées. Une seule requête part, au relâchement ; pendant le glissement
+  l'affichage suit sans rien envoyer. Le geste appartient au curseur : ni appui
+  long, ni ouverture de feuille, ni bascule de la tuile.
 - Toutes les cibles font au moins 44 px : pilules de mode en sélecteur segmenté,
-  +/− à 44 px, curseur avec piste de 10 px et pouce de 28 px.
+  curseurs avec une zone de 40 px de haut, piste de 8 à 10 px et pouce de 22 à
+  28 px.
 - Retour d'appui immédiat (échelle + luminosité) et vibration courte sur Android ;
   les actions basculent en optimiste, la confirmation arrive ensuite.
 - Le curseur de luminosité n'est plus dans la tuile : sur un écran tactile il se
   touchait en faisant défiler la page.
-- `-webkit-touch-callout: none` et `user-select: none` sur les tuiles pour éviter
-  le menu contextuel d'iOS lors d'un appui long.
+- `-webkit-touch-callout: none`, `-webkit-user-select: none` et `user-select: none`
+  sur toute la racine (pas seulement les tuiles : Safari ignore la propriété non
+  préfixée) pour éviter la sélection de texte et le menu contextuel d'iOS lors
+  d'un appui maintenu. Les champs de saisie gardent la sélection.
+- Un geste interrompu (`pointercancel`) remet à zéro l'état de glissement : un
+  appel entrant ou un changement d'application ne peut pas figer le
+  rafraîchissement.
 
 ## Scènes et boutons
 

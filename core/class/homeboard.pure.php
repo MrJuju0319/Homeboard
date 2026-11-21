@@ -125,6 +125,25 @@ class homeboardPure {
 		return $oport === $rport;
 	}
 
+	/* Dernier cran réellement atteignable entre min et max pour un pas donné :
+	   avec min=5, max=10 et pas=3, la borne haute affichée doit être 8, sinon
+	   le curseur ne peut jamais atteindre la valeur annoncée. */
+	public static function alignMax($_min, $_max, $_step) {
+		if (!is_numeric($_max)) {
+			return $_max;
+		}
+		$max = (float) $_max;
+		if (!is_numeric($_step) || (float) $_step <= 0) {
+			return $max;
+		}
+		$step = (float) $_step;
+		$base = is_numeric($_min) ? (float) $_min : 0.0;
+		if ($max <= $base) {
+			return round($max, 4);
+		}
+		return round($base + floor(($max - $base) / $step) * $step, 4);
+	}
+
 	/* Valeur d'un curseur ramenée dans les bornes et alignée sur le pas, côté
 	   serveur : l'interface arrondit déjà, mais elle n'est pas la sécurité.
 	   La borne haute doit rester sur la grille du pas : avec min=5, max=10 et

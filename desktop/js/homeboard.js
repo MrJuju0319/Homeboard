@@ -187,6 +187,14 @@
 		return Number(n).toFixed(d).replace('.', ',');
 	}
 
+	/* Dernier cran réellement atteignable pour un pas donné — même règle que
+	   homeboardPure::alignMax() côté serveur. Sans elle, la légende du curseur
+	   annonce une borne que le doigt ne peut jamais atteindre. */
+	function alignedMax(min, max, step) {
+		if (!(step > 0) || !(max > min)) { return max; }
+		return Math.round((min + Math.floor((max - min) / step) * step) * 10000) / 10000;
+	}
+
 	function tileState(t) {
 		var c = t.caps || {};
 		var id = c.state || (t.state && t.state.id);
@@ -661,6 +669,7 @@
 		if (min === null) { min = 5; }
 		if (max === null || max <= min) { max = min + 25; }
 		if (step === null || step <= 0) { step = 0.5; }
+		max = alignedMax(min, max, step);
 		var shown = (cur === null) ? min : Math.min(max, Math.max(min, cur));
 		var pct = Math.round((shown - min) / (max - min) * 100);
 		return '<div class="hb-thermo__target">' +
@@ -931,6 +940,7 @@
 				if (smin === null) { smin = 5; }
 				if (smax === null || smax <= smin) { smax = smin + 25; }
 				if (sstep === null || sstep <= 0) { sstep = 0.5; }
+				smax = alignedMax(smin, smax, sstep);
 				var cur = (setp === null) ? smin : Math.min(smax, Math.max(smin, setp));
 				var spct = Math.round((cur - smin) / (smax - smin) * 100);
 				html += '<div class="hb-setp">' +
@@ -994,6 +1004,10 @@
 		var release = function () {
 			if (!S.sheet) { return; }
 			S.sheet.pressing = false;
+			/* Un geste annulé (pointercancel) ne déclenche pas change : sans
+			   cette remise à zéro, S.dragging resterait vrai et la feuille
+			   comme les tuiles cesseraient de se rafraîchir. */
+			S.dragging = false;
 			if (S.sheet.retry) {
 				S.sheet.retry = false;
 				setTimeout(refreshDetail, 120);
@@ -1508,6 +1522,16 @@
 			if (!t || !t.caps || !t.caps.setSetpoint || !canAct(t)) { return; }
 			haptic();
 			exec(t.caps.setSetpoint, inp.value, { id: t.caps.setpoint, value: inp.value });
+		});
+
+		/* Geste interrompu (appel entrant, changement d'application, doigt
+		   capté par le navigateur) : sans cette remise à zéro, S.dragging
+		   resterait à true et le rafraîchissement des tuiles serait bloqué
+		   jusqu'au rechargement. */
+		root.addEventListener('pointercancel', function (e) {
+			if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
+			S.dragging = false;
+			refreshTiles();
 		});
 
 		root.addEventListener('pointermove', function (e) {
