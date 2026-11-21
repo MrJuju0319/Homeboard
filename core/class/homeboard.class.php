@@ -29,6 +29,16 @@ class homeboard extends eqLogic {
 	const LABEL_MAX = homeboardPure::LABEL_MAX;
 	const KINDS = homeboardPure::KINDS;
 
+	/* Tableau de bord courant. Résolu une fois par requête à partir du
+	   paramètre « b » (slug ou identifiant), sinon le tableau par défaut.
+	   Toute lecture et toute écriture de tuiles passent par lui. */
+	private static $boardRef = null;
+	private static $boardRow = null;
+	/* Caches par tableau : une même requête peut comparer deux tableaux
+	   (tests, administration) sans se tromper de périmètre. */
+	private static $tilesCache = array();
+	private static $actionsCache = array();
+
 	/* ============================================================
 	 *  Base de données
 	 * ============================================================ */
@@ -43,8 +53,10 @@ class homeboard extends eqLogic {
 				`isVisible` tinyint(1) NOT NULL DEFAULT 1,
 				PRIMARY KEY (`id`)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+			self::boardDdl(),
 			"CREATE TABLE IF NOT EXISTS `homeboard_tile` (
 				`id` int(11) NOT NULL AUTO_INCREMENT,
+				`board_id` int(11) NOT NULL DEFAULT 0,
 				`room_id` int(11) NOT NULL DEFAULT 0,
 				`cmd_id` int(11) NOT NULL DEFAULT 0,
 				`scenario_id` int(11) NOT NULL DEFAULT 0,
@@ -55,6 +67,7 @@ class homeboard extends eqLogic {
 				`isFavorite` tinyint(1) NOT NULL DEFAULT 0,
 				`pos` int(11) NOT NULL DEFAULT 0,
 				PRIMARY KEY (`id`),
+				KEY `board_id` (`board_id`),
 				KEY `room_id` (`room_id`),
 				KEY `cmd_id` (`cmd_id`)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -65,9 +78,34 @@ class homeboard extends eqLogic {
 		self::ensureSchema();
 	}
 
-	/* Migration : les installations créées avant l'ajout des tuiles de scénario
-	   n'ont pas la colonne scenario_id. Idempotent, appelé à la mise à jour. */
+	/* Une seule définition de la table des tableaux, utilisée à l'installation
+	   et à la migration (createTables appelle ensureSchema : pas de récursion). */
+	private static function boardDdl() {
+		return "CREATE TABLE IF NOT EXISTS `homeboard_board` (
+				`id` int(11) NOT NULL AUTO_INCREMENT,
+				`name` varchar(191) NOT NULL,
+				`slug` varchar(64) NOT NULL,
+				`pos` int(11) NOT NULL DEFAULT 0,
+				`isDefault` tinyint(1) NOT NULL DEFAULT 0,
+				`wallMode` tinyint(1) NOT NULL DEFAULT 0,
+				`wallDelay` int(11) NOT NULL DEFAULT 2,
+				`wallOled` tinyint(1) NOT NULL DEFAULT 0,
+				`wallWidgets` text,
+				PRIMARY KEY (`id`),
+				UNIQUE KEY `slug` (`slug`)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+	}
+
+	/* Migration : colonnes ajoutées après coup et table des tableaux. Idempotent,
+	   appelé à la mise à jour du plugin. */
 	public static function ensureSchema() {
+		try {
+			DB::getConnection()->exec(self::boardDdl());
+		} catch (Exception $e) {
+			return;
+		} catch (Throwable $e) {
+			return;
+		}
 		try {
 			$cols = DB::Prepare('SHOW COLUMNS FROM homeboard_tile', array(), DB::FETCH_TYPE_ALL);
 		} catch (Exception $e) {
@@ -83,12 +121,208 @@ class homeboard extends eqLogic {
 			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD COLUMN `scenario_id` int(11) NOT NULL DEFAULT 0 AFTER `cmd_id`');
 			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD KEY `scenario_id` (`scenario_id`)');
 		}
+		/* Multi-tableaux : la table existe forcément (createTables), on vérifie
+		   seulement les colonnes des installations antérieures. */
+		if (!isset($have['board_id'])) {
+			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD COLUMN `board_id` int(11) NOT NULL DEFAULT 0 AFTER `id`');
+			DB::getConnection()->exec('ALTER TABLE `homeboard_tile` ADD KEY `board_id` (`board_id`)');
+		}
+		self::ensureDefaultBoard();
+	}
+
+	/* Crée le tableau par défaut et y rattache les tuiles orphelines. Les
+	   réglages de voile existants (config plate d'avant 0.5) sont recopiés
+	   dans ce tableau une seule fois. */
+	private static function ensureDefaultBoard() {
+		$row = DB::Prepare('SELECT id FROM homeboard_board ORDER BY isDefault DESC, pos, id LIMIT 1', array(), DB::FETCH_TYPE_ROW);
+		if (!is_array($row)) {
+			$widgets = config::byKey('wallWidgets', self::PLUGIN_ID, array());
+			if (is_string($widgets)) {
+				$widgets = $widgets === '' ? array() : json_decode($widgets, true);
+			}
+			DB::Prepare('INSERT INTO homeboard_board (name, slug, pos, isDefault, wallMode, wallDelay, wallOled, wallWidgets) VALUES (?, ?, 1, 1, ?, ?, ?, ?)',
+				array(
+					'Maison',
+					self::uniqueSlug('maison'),
+					max(0, min(1, (int) config::byKey('wallMode', self::PLUGIN_ID, 0))),
+					max(1, min(60, (int) config::byKey('wallDelay', self::PLUGIN_ID, 2))),
+					max(0, min(1, (int) config::byKey('wallOled', self::PLUGIN_ID, 0))),
+					json_encode(is_array($widgets) ? $widgets : array()),
+				));
+			$row = DB::Prepare('SELECT id FROM homeboard_board ORDER BY isDefault DESC, pos, id LIMIT 1', array(), DB::FETCH_TYPE_ROW);
+		}
+		if (is_array($row)) {
+			DB::Prepare('UPDATE homeboard_tile SET board_id = ? WHERE board_id = 0', array((int) $row['id']));
+		}
 	}
 
 	/* Suppression des données à la désinstallation du plugin. */
 	public static function dropTables() {
 		DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_tile`');
 		DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_room`');
+		DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
+	}
+
+	/* ============================================================
+	 *  Tableaux de bord
+	 * ============================================================ */
+
+	public static function boards() {
+		$rows = DB::Prepare('SELECT * FROM homeboard_board ORDER BY pos, id', array(), DB::FETCH_TYPE_ALL);
+		return is_array($rows) ? $rows : array();
+	}
+
+	public static function defaultBoard() {
+		$row = DB::Prepare('SELECT * FROM homeboard_board ORDER BY isDefault DESC, pos, id LIMIT 1', array(), DB::FETCH_TYPE_ROW);
+		return is_array($row) ? $row : null;
+	}
+
+	/* Résout un tableau par identifiant ou par slug. Sans argument : le
+	   tableau courant (paramètre « b » de la requête), sinon celui par défaut.
+	   Une référence inconnue retombe sur le tableau par défaut plutôt que de
+	   casser l'affichage : un lien périmé montre encore quelque chose. */
+	public static function board($_ref = null) {
+		$ref = ($_ref === null || $_ref === '') ? self::currentBoardRef() : $_ref;
+		if ($ref !== null && $ref !== '') {
+			if (is_numeric($ref)) {
+				$row = DB::Prepare('SELECT * FROM homeboard_board WHERE id = ?', array((int) $ref), DB::FETCH_TYPE_ROW);
+			} else {
+				$row = DB::Prepare('SELECT * FROM homeboard_board WHERE slug = ?', array((string) $ref), DB::FETCH_TYPE_ROW);
+			}
+			if (is_array($row)) {
+				return $row;
+			}
+		}
+		return self::defaultBoard();
+	}
+
+	public static function boardId() {
+		$b = self::board();
+		return is_array($b) ? (int) $b['id'] : 0;
+	}
+
+	private static function currentBoardRef() {
+		if (self::$boardRef !== null) {
+			return self::$boardRef;
+		}
+		$ref = null;
+		foreach (array('b', 'board') as $k) {
+			if (isset($_REQUEST[$k]) && $_REQUEST[$k] !== '') {
+				$ref = $_REQUEST[$k];
+				break;
+			}
+		}
+		self::$boardRef = $ref;
+		return self::$boardRef;
+	}
+
+	/* Force le tableau courant (tests, administration d'un autre tableau).
+	   Les caches par tableau restent valides : rien à vider. */
+	public static function useBoard($_ref) {
+		self::$boardRef = $_ref;
+		self::$boardRow = null;
+		return self::board();
+	}
+
+	public static function slugify($_name) {
+		/* mb_strtolower : strtolower() ne descend pas les majuscules accentuées
+		   (É, À…), qui finissaient supprimées du slug. */
+		$s = function_exists('mb_strtolower')
+			? mb_strtolower(trim((string) $_name), 'UTF-8')
+			: strtolower(trim((string) $_name));
+		$s = strtr($s, array(
+			'à' => 'a', 'â' => 'a', 'ä' => 'a', 'á' => 'a', 'ã' => 'a', 'å' => 'a',
+			'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+			'î' => 'i', 'ï' => 'i', 'í' => 'i',
+			'ô' => 'o', 'ö' => 'o', 'ó' => 'o', 'õ' => 'o',
+			'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ú' => 'u',
+			'ç' => 'c', 'ñ' => 'n', 'œ' => 'oe', 'æ' => 'ae',
+		));
+		$s = preg_replace('/[^a-z0-9]+/', '-', $s);
+		$s = trim((string) $s, '-');
+		$s = mb_substr($s, 0, 40);
+		return $s === '' ? 'tableau' : $s;
+	}
+
+	private static function uniqueSlug($_base) {
+		$base = self::slugify($_base);
+		$slug = $base;
+		$n = 1;
+		while ($n < 60) {
+			$row = DB::Prepare('SELECT id FROM homeboard_board WHERE slug = ?', array($slug), DB::FETCH_TYPE_ROW);
+			if (!is_array($row)) {
+				return $slug;
+			}
+			$n++;
+			$slug = $base . '-' . $n;
+		}
+		return $base . '-' . substr((string) mt_rand(1000, 9999), 0, 4);
+	}
+
+	public static function createBoard($_data) {
+		$name = trim((string) (isset($_data['name']) ? $_data['name'] : ''));
+		if ($name === '') {
+			throw new Exception('Le nom du tableau est obligatoire');
+		}
+		$name = mb_substr($name, 0, self::LABEL_MAX);
+		$pos = DB::Prepare('SELECT COALESCE(MAX(pos), 0) + 1 AS p FROM homeboard_board', array(), DB::FETCH_TYPE_ROW);
+		DB::Prepare('INSERT INTO homeboard_board (name, slug, pos, isDefault, wallMode, wallDelay, wallOled, wallWidgets) VALUES (?, ?, ?, 0, 0, 2, 0, ?)',
+			array($name, self::uniqueSlug($name), (int) $pos['p'], json_encode(array())));
+		return (int) DB::getConnection()->lastInsertId();
+	}
+
+	/* Le slug ne bouge pas au renommage : les liens déjà installés sur les
+	   tablettes continuent de fonctionner. */
+	public static function updateBoard($_data) {
+		$id = isset($_data['id']) ? (int) $_data['id'] : 0;
+		$row = DB::Prepare('SELECT * FROM homeboard_board WHERE id = ?', array($id), DB::FETCH_TYPE_ROW);
+		if (!is_array($row)) {
+			throw new Exception('Tableau introuvable');
+		}
+		$name = trim((string) (isset($_data['name']) ? $_data['name'] : ''));
+		if ($name === '') {
+			throw new Exception('Le nom du tableau est obligatoire');
+		}
+		DB::Prepare('UPDATE homeboard_board SET name = ?, pos = ? WHERE id = ?',
+			array(mb_substr($name, 0, self::LABEL_MAX), isset($_data['pos']) ? (int) $_data['pos'] : (int) $row['pos'], $id));
+		return $id;
+	}
+
+	public static function deleteBoard($_id) {
+		$id = (int) $_id;
+		$all = self::boards();
+		if (count($all) <= 1) {
+			throw new Exception('Impossible de supprimer le dernier tableau de bord');
+		}
+		$target = null;
+		foreach ($all as $b) {
+			if ((int) $b['id'] === $id) {
+				$target = $b;
+			}
+		}
+		if ($target === null) {
+			throw new Exception('Tableau introuvable');
+		}
+		$db = DB::getConnection();
+		$db->beginTransaction();
+		try {
+			DB::Prepare('DELETE FROM homeboard_tile WHERE board_id = ?', array($id));
+			DB::Prepare('DELETE FROM homeboard_board WHERE id = ?', array($id));
+			if ((int) $target['isDefault'] === 1) {
+				$next = DB::Prepare('SELECT id FROM homeboard_board ORDER BY pos, id LIMIT 1', array(), DB::FETCH_TYPE_ROW);
+				if (is_array($next)) {
+					DB::Prepare('UPDATE homeboard_board SET isDefault = 1 WHERE id = ?', array((int) $next['id']));
+				}
+			}
+			$db->commit();
+		} catch (Exception $e) {
+			$db->rollBack();
+			throw $e;
+		} catch (Throwable $e) {
+			$db->rollBack();
+			throw $e;
+		}
+		return true;
 	}
 
 	/* ============================================================
@@ -117,13 +351,20 @@ class homeboard extends eqLogic {
 	}
 
 	public static function settings() {
+		$b = self::board();
 		return array(
+			/* Réglages de la maison : communs à tous les tableaux. */
 			'homeName' => (string) config::byKey('homeName', self::PLUGIN_ID, 'Maison'),
 			'showClock' => (int) config::byKey('showClock', self::PLUGIN_ID, 1),
 			'refresh' => max(2, min(30, (int) config::byKey('refresh', self::PLUGIN_ID, 3))),
-			'wallMode' => (int) config::byKey('wallMode', self::PLUGIN_ID, 0),
-			'wallDelay' => max(1, min(60, (int) config::byKey('wallDelay', self::PLUGIN_ID, 2))),
-			'wallOled' => (int) config::byKey('wallOled', self::PLUGIN_ID, 0),
+			'boardId' => is_array($b) ? (int) $b['id'] : 0,
+			'boardName' => is_array($b) ? (string) $b['name'] : '',
+			'boardSlug' => is_array($b) ? (string) $b['slug'] : '',
+			/* Réglages du voile : propres au tableau (le mur du salon ne
+			   s'endort pas comme le téléphone). */
+			'wallMode' => is_array($b) ? max(0, min(1, (int) $b['wallMode'])) : 0,
+			'wallDelay' => is_array($b) ? max(1, min(60, (int) $b['wallDelay'])) : 2,
+			'wallOled' => is_array($b) ? max(0, min(1, (int) $b['wallOled'])) : 0,
 			'wallWidgets' => self::wallWidgets(),
 		);
 	}
@@ -135,7 +376,8 @@ class homeboard extends eqLogic {
 		/* config::byKey() décode déjà le JSON stocké : la valeur revient en
 		   tableau, pas en chaîne (un cast en string donnait « Array » et
 		   vidait silencieusement la liste). */
-		$raw = config::byKey('wallWidgets', self::PLUGIN_ID, array());
+		$b = self::board();
+		$raw = is_array($b) && isset($b['wallWidgets']) ? $b['wallWidgets'] : array();
 		if (is_string($raw)) {
 			$raw = $raw === '' ? array() : json_decode($raw, true);
 		}
@@ -198,10 +440,14 @@ class homeboard extends eqLogic {
 				$clean[] = array('cmd' => $cmdId, 'label' => $label);
 			}
 		}
-		config::save('wallMode', $mode, self::PLUGIN_ID);
-		config::save('wallOled', $oled, self::PLUGIN_ID);
-		config::save('wallDelay', $delay, self::PLUGIN_ID);
-		config::save('wallWidgets', json_encode($clean), self::PLUGIN_ID);
+		/* Le voile appartient au tableau : le mur du salon et le téléphone
+		   n'ont pas le même comportement de veille. */
+		$bid = self::boardId();
+		if ($bid <= 0) {
+			throw new Exception('Aucun tableau de bord');
+		}
+		DB::Prepare('UPDATE homeboard_board SET wallMode = ?, wallOled = ?, wallDelay = ?, wallWidgets = ? WHERE id = ?',
+			array($mode, $oled, $delay, json_encode($clean), $bid));
 		return self::settings();
 	}
 
@@ -258,8 +504,12 @@ class homeboard extends eqLogic {
 	 *  Tuiles
 	 * ============================================================ */
 
-	public static function tiles() {
-		$rows = DB::Prepare('SELECT * FROM homeboard_tile ORDER BY pos, id', array(), DB::FETCH_TYPE_ALL);
+	/* Tuiles du tableau courant (ou du tableau demandé). Aucune requête ne
+	   doit lire homeboard_tile sans filtrer : c'est ce qui garantit qu'un
+	   tableau ne voit ni n'exécute les tuiles d'un autre. */
+	public static function tiles($_boardId = null) {
+		$bid = ($_boardId === null) ? self::boardId() : (int) $_boardId;
+		$rows = DB::Prepare('SELECT * FROM homeboard_tile WHERE board_id = ? ORDER BY pos, id', array($bid), DB::FETCH_TYPE_ALL);
 		return is_array($rows) ? $rows : array();
 	}
 
@@ -324,17 +574,35 @@ class homeboard extends eqLogic {
 		}
 		$pos = isset($_data['pos']) ? (int) $_data['pos'] : 0;
 		if ($id > 0) {
+			/* Une tuile d'un autre tableau ne se modifie pas depuis celui-ci. */
+			self::assertTileInBoard($id);
 			DB::Prepare('UPDATE homeboard_tile SET room_id = ?, cmd_id = ?, scenario_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
 				array($roomId, $cmdId, $scenarioId, $label, $kind, $icon, $size, $fav, $pos, $id));
 		} else {
-			DB::Prepare('INSERT INTO homeboard_tile (room_id, cmd_id, scenario_id, label, kind, icon, size, isFavorite, pos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-				array($roomId, $cmdId, $scenarioId, $label, $kind, $icon, $size, $fav, $pos));
+			DB::Prepare('INSERT INTO homeboard_tile (board_id, room_id, cmd_id, scenario_id, label, kind, icon, size, isFavorite, pos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+				array(self::boardId(), $roomId, $cmdId, $scenarioId, $label, $kind, $icon, $size, $fav, $pos));
 			$id = (int) DB::getLastInsertId();
 		}
 		return $id;
 	}
 
+	/* Une tuile n'existe que dans son tableau : toute écriture vérifie cette
+	   appartenance, sinon un tableau pourrait modifier ou supprimer les tuiles
+	   d'un autre en changeant l'identifiant envoyé. */
+	private static function assertTileInBoard($_id) {
+		$id = (int) $_id;
+		$row = DB::Prepare('SELECT board_id FROM homeboard_tile WHERE id = ?', array($id), DB::FETCH_TYPE_ROW);
+		if (!is_array($row)) {
+			throw new Exception('Tuile ' . $id . ' introuvable');
+		}
+		if ((int) $row['board_id'] !== self::boardId()) {
+			throw new Exception('Tuile ' . $id . ' : ce tableau de bord ne la contient pas');
+		}
+		return $row;
+	}
+
 	public static function deleteTile($_id) {
+		self::assertTileInBoard($_id);
 		DB::Prepare('DELETE FROM homeboard_tile WHERE id = ?', array((int) $_id));
 	}
 
@@ -801,9 +1069,9 @@ class homeboard extends eqLogic {
 	   (pièce cachée, ou équipement sans droit de lecture) reste exécutable
 	   par l'API alors qu'elle n'existe plus à l'écran. */
 	public static function accessibleTiles($_reload = false) {
-		static $cache = null;
-		if ($cache !== null && !$_reload) {
-			return $cache;
+		$bid = self::boardId();
+		if (isset(self::$tilesCache[$bid]) && !$_reload) {
+			return self::$tilesCache[$bid];
 		}
 		$rooms = array();
 		foreach (self::rooms(false) as $r) {
@@ -838,7 +1106,7 @@ class homeboard extends eqLogic {
 			}
 			$out[] = $row;
 		}
-		$cache = $out;
+		self::$tilesCache[$bid] = $out;
 		return $out;
 	}
 
@@ -1155,9 +1423,9 @@ class homeboard extends eqLogic {
 	   liste, un compte authentifié pouvait appeler exec() avec l'identifiant
 	   d'une commande d'action quelconque de la maison. */
 	public static function allowedActions($_reload = false) {
-		static $cache = null;
-		if ($cache !== null && !$_reload) {
-			return $cache;
+		$bid = self::boardId();
+		if (isset(self::$actionsCache[$bid]) && !$_reload) {
+			return self::$actionsCache[$bid];
 		}
 		$keys = array('on', 'off', 'toggle', 'briSet', 'colorSet', 'setSetpoint', 'up', 'down', 'stop', 'slider');
 		$out = array();
@@ -1202,7 +1470,7 @@ class homeboard extends eqLogic {
 				}
 			}
 		}
-		$cache = $out;
+		self::$actionsCache[$bid] = $out;
 		return $out;
 	}
 
@@ -1486,7 +1754,7 @@ class homeboard extends eqLogic {
 		/* Commandes déjà utilisées : un import répété ne doit pas recréer les
 		   tuiles (la vérification de l'interface ne suffit pas). */
 		$existing = array();
-		foreach (DB::Prepare('SELECT cmd_id FROM homeboard_tile', array(), DB::FETCH_TYPE_ALL) as $t) {
+		foreach (DB::Prepare('SELECT cmd_id FROM homeboard_tile WHERE board_id = ?', array(self::boardId()), DB::FETCH_TYPE_ALL) as $t) {
 			$existing[(int) $t['cmd_id']] = true;
 		}
 		$skipped = 0;
@@ -1608,6 +1876,8 @@ class homeboard extends eqLogic {
 		}
 		return array(
 			'settings' => self::settings(),
+			'board' => self::board(),
+			'boards' => self::boards(),
 			'rooms' => $rooms,
 			'tiles' => $tiles,
 			'icons' => self::iconList(),

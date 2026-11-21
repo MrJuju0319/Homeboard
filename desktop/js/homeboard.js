@@ -104,7 +104,7 @@
 			opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' };
 			opts.body = qs;
 		} else {
-			url = API + '?' + qs;
+			url = API + (API.indexOf('?') >= 0 ? '&' : '?') + qs;
 		}
 		return fetch(url, opts)
 			.then(function (r) {
@@ -1400,6 +1400,13 @@
 		root = document.getElementById('hb-root');
 		if (!root) { return false; }
 		API = root.getAttribute('data-api');
+		/* Tableau de bord : le slug vient du shell (paramètre ?b=). Il est
+		   ajouté à chaque appel, donc lecture et écriture visent le même
+		   tableau — c'est le serveur qui vérifie ensuite l'appartenance. */
+		var boardSlug = root.getAttribute('data-board') || '';
+		if (boardSlug) {
+			API += (API.indexOf('?') >= 0 ? '&' : '?') + 'b=' + encodeURIComponent(boardSlug);
+		}
 		CFG_URL = root.getAttribute('data-config') || '';
 		EXIT_URL = root.getAttribute('data-exit') || '';
 

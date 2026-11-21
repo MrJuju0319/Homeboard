@@ -52,6 +52,11 @@ try {
 
 	$action = init('action');
 
+	/* Tableau de bord courant : le paramètre « b » (slug ou identifiant) décide
+	   du périmètre de lecture ET d'écriture. Absent ou inconnu, on retombe sur
+	   le tableau par défaut. */
+	homeboard::useBoard(init('b', init('board', '')));
+
 	/* Défense CSRF complémentaire : Jeedom 4.4+ n'expose plus de jeton CSRF
 	   (ajax::getToken() renvoie ''), on s'appuie donc sur POST + même origine.
 	   Contrôle strict : il faut au moins un des deux en-têtes, et l'origine
@@ -59,7 +64,7 @@ try {
 	   En cas de doute, on refuse : une écriture rejetée à tort se retente,
 	   une écriture acceptée à tort ne se rattrape pas. */
 	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile',
-		'saveTiles', 'deleteTile', 'import');
+		'saveTiles', 'deleteTile', 'import', 'saveBoard', 'deleteBoard', 'selectBoard');
 	if (in_array($action, $writeActions, true)) {
 		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
 		$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
@@ -82,7 +87,8 @@ try {
 	}
 
 	$adminActions = array('saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
-		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios');
+		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios', 'saveBoard', 'deleteBoard',
+		'selectBoard');
 	if (in_array($action, $adminActions, true) && !isConnect('admin')) {
 		throw new Exception('401 Unauthorized - droits administrateur requis');
 	}
@@ -146,8 +152,31 @@ try {
 			config::save('homeName', trim((string) init('homeName', 'Maison')), homeboard::PLUGIN_ID);
 			config::save('showClock', (int) init('showClock', 1), homeboard::PLUGIN_ID);
 			config::save('refresh', max(2, min(30, (int) init('refresh', 3))), homeboard::PLUGIN_ID);
-			config::save('wallMode', (int) init('wallMode', 0), homeboard::PLUGIN_ID);
 			ajax::success(homeboard::settings());
+			break;
+
+		case 'saveBoard':
+			$id = init('id', 0);
+			if ((int) $id > 0) {
+				homeboard::updateBoard(array('id' => $id, 'name' => init('name', ''), 'pos' => init('pos', 0)));
+				$saved = homeboard::board((int) $id);
+			} else {
+				$saved = homeboard::board((int) homeboard::createBoard(array('name' => init('name', ''))));
+			}
+			ajax::success($saved);
+			break;
+
+		/* Tableau affiché par la page de configuration. Jeedom rend cette page
+		   en AJAX : un paramètre d'URL ne survit pas au rechargement, on garde
+		   donc le choix côté serveur. */
+		case 'selectBoard':
+			config::save('adminBoard', (int) init('id', 0), homeboard::PLUGIN_ID);
+			ajax::success(array('id' => (int) init('id', 0)));
+			break;
+
+		case 'deleteBoard':
+			homeboard::deleteBoard(init('id', 0));
+			ajax::success(homeboard::boards());
 			break;
 
 		case 'saveWall':

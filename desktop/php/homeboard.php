@@ -20,6 +20,7 @@ $hbExitUrl = $hbFull ? 'index.php?v=d&p=homeboard&m=homeboard&fullscreen=0' : ''
 
 <div id="hb-root" class="hb-app-root"
      data-api="plugins/<?php echo homeboard::PLUGIN_ID; ?>/core/ajax/homeboard.ajax.php"
+     data-board="<?php echo htmlspecialchars((string) init('b', '')); ?>"
      data-config="<?php echo $hbConfigUrl; ?>"
      data-exit="<?php echo $hbExitUrl; ?>"></div>
 

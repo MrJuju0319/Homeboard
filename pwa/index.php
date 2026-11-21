@@ -20,6 +20,15 @@ $jsVer = @filemtime(dirname(__FILE__) . '/../desktop/js/homeboard.js');
    lien de configuration est toujours présent, mais la page de configuration
    exige elle-même le profil administrateur. */
 $cfgUrl = '../../../index.php?v=d&p=plugin&id=homeboard';
+/* Tableau de bord demandé (?b=slug). Une valeur inconnue n'est pas une erreur :
+   l'API retombe sur le tableau par défaut, l'affichage reste cohérent. */
+$boardSlug = '';
+if (isset($_GET['b']) && $_GET['b'] !== '') {
+	$row = DB::Prepare('SELECT slug FROM homeboard_board WHERE slug = ?', array((string) $_GET['b']), DB::FETCH_TYPE_ROW);
+	if (is_array($row)) {
+		$boardSlug = (string) $row['slug'];
+	}
+}
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -40,6 +49,7 @@ $cfgUrl = '../../../index.php?v=d&p=plugin&id=homeboard';
 <body class="hb-standalone">
 	<div id="hb-root"
 	     data-api="../core/ajax/homeboard.ajax.php"
+	     data-board="<?php echo htmlspecialchars($boardSlug); ?>"
 	     data-config="<?php echo htmlspecialchars($cfgUrl); ?>"></div>
 	<script src="../../../core/php/getResource.php?file=plugins/homeboard/desktop/js/homeboard.js&v=<?php echo $jsVer; ?>"></script>
 </body>

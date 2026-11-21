@@ -6,7 +6,11 @@ aucun build : PHP + JS natif.
 
 ## Fonctionnalités
 
-- **Pièces** = onglets du tableau de bord (icône, ordre, visibilité).
+- **Tableaux de bord multiples** : chaque tableau a ses propres tuiles et son
+  propre comportement de veille (mur du salon, téléphone, tableau technique).
+  Voir « Plusieurs tableaux de bord ».
+- **Pièces** = onglets du tableau de bord (icône, ordre, visibilité). Les pièces
+  sont communes à tous les tableaux, les tuiles non.
 - **Tuiles** pilotées par une seule commande Jeedom ; le plugin retrouve seul les
   commandes sœurs de l'équipement (on/off, variation, consigne, modes, volet).
 - Types reconnus automatiquement : lumière (avec curseur de luminosité),
@@ -103,6 +107,33 @@ aucun build : PHP + JS natif.
 - Un geste interrompu (`pointercancel`) remet à zéro l'état de glissement : un
   appel entrant ou un changement d'application ne peut pas figer le
   rafraîchissement.
+
+## Plusieurs tableaux de bord
+
+Une installation peut avoir plusieurs tableaux indépendants : un écran mural au
+salon, un tableau simplifié sur téléphone, un tableau technique. Les **pièces**
+sont communes (ce sont des objets Jeedom) ; les **tuiles** appartiennent à un
+tableau et le **voile de veille** (activation, délai, OLED, widgets) est réglé
+par tableau — le mur du salon peut s'endormir sans que le téléphone suive.
+
+- Configuration → fieldset « Tableaux de bord » : choisir le tableau courant,
+  en créer un, le renommer, le supprimer. Les champs des fieldsets suivants
+  (pièces, tuiles, voile) portent alors sur ce tableau.
+- Chaque tableau a un **slug** stable (le renommage ne le change pas) et une
+  adresse propre : `plugins/homeboard/pwa/index.php?b=<slug>`. C'est cette URL
+  qu'on installe sur l'écran concerné.
+- L'adresse sans paramètre sert le tableau **par défaut**. Un slug inconnu
+  retombe aussi sur le tableau par défaut : un lien périmé affiche encore
+  quelque chose au lieu d'une page vide.
+- Le slug est **aussi un périmètre de droits** : les commandes exécutables sont
+  celles des tuiles accessibles *du tableau courant*, et une tuile d'un autre
+  tableau ne peut être ni modifiée ni supprimée en changeant l'identifiant
+  envoyé à l'API.
+- Créer un tableau ne recopie rien : il démarre vide, ses tuiles s'ajoutent
+  depuis sa propre configuration. Une même commande peut figurer sur plusieurs
+  tableaux.
+- Le dernier tableau ne peut pas être supprimé ; supprimer un tableau supprime
+  ses tuiles, jamais les pièces.
 
 ## Scènes et boutons
 

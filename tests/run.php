@@ -12,7 +12,7 @@
 $pure = in_array('--pure', $argv, true);
 $failed = 0;
 $passed = 0;
-$GLOBALS['hbTestIds'] = array('tile' => array(), 'room' => array(), 'scenario' => array());
+$GLOBALS['hbTestIds'] = array('tile' => array(), 'room' => array(), 'scenario' => array(), 'board' => array());
 
 function check($_name, $_cond, $_detail = '') {
 	global $failed, $passed;
@@ -176,6 +176,13 @@ register_shutdown_function(function () {
 			$sc = scenario::byId((int) $id);
 			if (is_object($sc)) { $sc->remove(); }
 		}
+		foreach ($ids['board'] as $id) {
+			$b = DB::Prepare('SELECT id FROM homeboard_board WHERE id = ?', array((int) $id), DB::FETCH_TYPE_ROW);
+			if (is_array($b)) {
+				DB::Prepare('DELETE FROM homeboard_tile WHERE board_id = ?', array((int) $id));
+				DB::Prepare('DELETE FROM homeboard_board WHERE id = ?', array((int) $id));
+			}
+		}
 	} catch (Throwable $e) {
 		echo "  ...  nettoyage partiel : " . $e->getMessage() . "\n";
 	}
@@ -314,6 +321,71 @@ if (!is_array($cmdRow)) {
 	check('nom borné à 191 caractères', mb_strlen($row['name']) === 191, (string) mb_strlen($row['name']));
 	check('icône hors liste remplacée', $row['icon'] === 'home', (string) $row['icon']);
 }
+
+echo "\n[13] Tableaux de bord\n";
+$def = homeboard::defaultBoard();
+$defId = is_array($def) ? (int) $def['id'] : 0;
+check('un tableau par défaut existe', $defId > 0);
+check('slug du tableau par défaut', is_array($def) && $def['slug'] !== '', is_array($def) ? (string) $def['slug'] : '');
+check('slugify retire les accents', homeboard::slugify('Mur du Salon Étage') === 'mur-du-salon-etage', homeboard::slugify('Mur du Salon Étage'));
+
+homeboard::useBoard($defId);
+$beforeTiles = count(homeboard::tiles());
+$b2 = track('board', homeboard::createBoard(array('name' => 'ZZ test board')));
+check('tableau créé', $b2 > 0);
+homeboard::useBoard($b2);
+check('nouveau tableau vide', count(homeboard::tiles()) === 0, (string) count(homeboard::tiles()));
+
+if (is_array($cmdRow)) {
+	$t2 = track('tile', homeboard::saveTile(array(
+		'id' => 0, 'room_id' => $roomId, 'cmd_id' => (int) $cmdRow['cmd_id'], 'kind' => 'switch',
+		'label' => 'ZZ tuile tableau B', 'icon' => 'power', 'size' => 'normal', 'isFavorite' => 0, 'pos' => 1,
+	)));
+	check('tuile rangée dans son tableau', containsTile(homeboard::tiles(), $t2));
+
+	homeboard::useBoard($defId);
+	check('tuile d un autre tableau invisible', !containsTile(homeboard::tiles(), $t2));
+	check('tableau par défaut inchangé', count(homeboard::tiles()) === $beforeTiles, count(homeboard::tiles()) . ' vs ' . $beforeTiles);
+	$allowedA = homeboard::allowedActions(true);
+	$sample = count($allowedA) ? (int) array_key_first($allowedA) : 0;
+
+	homeboard::useBoard($b2);
+	$allowedB = homeboard::allowedActions(true);
+	check('périmètre des actions limité au tableau', $sample > 0 && !isset($allowedB[$sample]), (string) $sample);
+
+	/* Depuis le tableau de test, une tuile du tableau par défaut ne doit être
+	   ni modifiable ni supprimable : sinon un identifiant suffirait à sortir de
+	   son périmètre. */
+	$foreign = DB::Prepare('SELECT id FROM homeboard_tile WHERE board_id = ? LIMIT 1', array($defId), DB::FETCH_TYPE_ROW);
+	check('modification croisée refusée', throwsSomething(function () use ($foreign, $b2) {
+		homeboard::useBoard($b2);
+		homeboard::saveTile(array('id' => (int) $foreign['id'], 'label' => 'détournement'));
+	}));
+	check('suppression croisée refusée', throwsSomething(function () use ($foreign) {
+		homeboard::deleteTile((int) $foreign['id']);
+	}));
+	check('la tuile visée est toujours là', is_array(DB::Prepare('SELECT id FROM homeboard_tile WHERE id = ?', array((int) $foreign['id']), DB::FETCH_TYPE_ROW)));
+}
+
+homeboard::useBoard($b2);
+homeboard::deleteBoard($b2);
+check('les tuiles du tableau supprimé disparaissent', count(DB::Prepare('SELECT id FROM homeboard_tile WHERE board_id = ?', array($b2), DB::FETCH_TYPE_ALL)) === 0);
+check('suppression d un tableau inexistant refusée', throwsSomething(function () {
+	homeboard::deleteBoard(999999);
+}));
+/* Le garde-fou du dernier tableau ne se teste qu'en l'absence d'autres
+   tableaux réels : les tests ne suppriment jamais un tableau existant. */
+if (count(homeboard::boards()) === 1) {
+	check('dernier tableau protégé', throwsSomething(function () use ($defId) {
+		homeboard::deleteBoard($defId);
+	}));
+} else {
+	echo "  ...  plusieurs tableaux présents : garde-fou du dernier non testé\n";
+}
+
+homeboard::useBoard($defId);
+check('retour au tableau par défaut', homeboard::boardId() === $defId);
+check('tuiles du tableau par défaut intactes', count(homeboard::tiles()) === $beforeTiles);
 
 echo "\n$passed test(s) passé(s), $failed échec(s)\n";
 exit($failed === 0 ? 0 : 1);

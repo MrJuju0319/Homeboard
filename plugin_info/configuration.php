@@ -9,12 +9,29 @@ $icons = homeboard::iconList();
 $homeName = config::byKey('homeName', 'homeboard', 'Maison');
 $showClock = (int) config::byKey('showClock', 'homeboard', 1);
 $refresh = (int) config::byKey('refresh', 'homeboard', 3);
-$wallMode = (int) config::byKey('wallMode', 'homeboard', 0);
-$wallDelay = max(1, min(60, (int) config::byKey('wallDelay', 'homeboard', 2)));
-$wallOled = (int) config::byKey('wallOled', 'homeboard', 0);
+/* Tableau de bord courant de la page : ?board=slug. Toute la configuration
+   (pièces affichées, tuiles, voile) porte sur ce tableau. */
+$hbBoards = homeboard::boards();
+/* Le paramètre d'URL ne survit pas au rendu AJAX de la page par Jeedom : le
+   tableau choisi est donc mémorisé côté serveur, l'URL restant prioritaire. */
+$hbBoardRef = init('board', init('b', ''));
+if ($hbBoardRef === '') {
+	$hbBoardRef = (int) config::byKey('adminBoard', 'homeboard', 0);
+}
+$hbBoard = homeboard::board($hbBoardRef);
+if (is_array($hbBoard)) {
+	homeboard::useBoard((int) $hbBoard['id']);
+}
+$boardSlug = is_array($hbBoard) ? (string) $hbBoard['slug'] : '';
+$boardName = is_array($hbBoard) ? (string) $hbBoard['name'] : '';
+$wallMode = is_array($hbBoard) ? (int) $hbBoard['wallMode'] : 0;
+$wallDelay = is_array($hbBoard) ? max(1, min(60, (int) $hbBoard['wallDelay'])) : 2;
+$wallOled = is_array($hbBoard) ? (int) $hbBoard['wallOled'] : 0;
 
 $pwaUrl = rtrim((string) network::getNetworkAccess('internal'), '/') . '/plugins/homeboard/pwa/index.php';
-$dashUrl = 'index.php?v=d&p=homeboard&m=homeboard';
+$boardQuery = $boardSlug !== '' ? '&b=' . urlencode($boardSlug) : '';
+$pwaBoardUrl = $pwaUrl . ($boardSlug !== '' ? '?b=' . urlencode($boardSlug) : '');
+$dashUrl = 'index.php?v=d&p=homeboard&m=homeboard' . $boardQuery;
 
 function hb_icon_options($icons, $selected = '') {
 	$out = '';
@@ -62,6 +79,55 @@ function hb_icon_options($icons, $selected = '') {
 					<a class="btn btn-default" href="<?php echo $dashUrl; ?>" target="_blank">
 						<i class="fas fa-external-link-alt"></i> {{Ouvrir le tableau de bord}}
 					</a>
+				</div>
+			</div>
+		</fieldset>
+
+		<fieldset>
+			<legend><i class="fas fa-layer-group"></i> {{Tableaux de bord}}</legend>
+			<p class="help-block">
+				{{Un tableau regroupe ses propres tuiles et son propre comportement de veille : un écran mural
+				au salon, un tableau simplifié sur téléphone, un tableau technique. Les pièces sont communes,
+				les tuiles non.}}
+			</p>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Tableau courant}}</label>
+				<div class="col-sm-6">
+					<div class="input-group">
+						<select class="form-control" id="hb-board-select">
+							<?php foreach ($hbBoards as $b) { ?>
+								<option value="<?php echo htmlspecialchars($b['slug']); ?>"<?php echo ((int) $b['id'] === (int) ($hbBoard['id'] ?? 0)) ? ' selected' : ''; ?>>
+									<?php echo htmlspecialchars($b['name']); ?>
+								</option>
+							<?php } ?>
+						</select>
+						<span class="input-group-btn">
+							<button type="button" class="btn btn-default" id="hb-board-rename" title="{{Renommer}}">
+								<i class="fas fa-pencil-alt"></i>
+							</button>
+							<button type="button" class="btn btn-danger" id="hb-board-delete" title="{{Supprimer}}">
+								<i class="fas fa-trash"></i>
+							</button>
+						</span>
+					</div>
+					<span class="help-block">
+						{{Les champs ci-dessous portent sur ce tableau. Adresse du tableau :}}
+						<code><?php echo htmlspecialchars($pwaBoardUrl); ?></code>
+					</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Nouveau tableau}}</label>
+				<div class="col-sm-6">
+					<div class="input-group">
+						<input type="text" class="form-control" id="hb-board-name" maxlength="191" placeholder="{{Mur du salon}}">
+						<span class="input-group-btn">
+							<button type="button" class="btn btn-primary" id="hb-board-add">
+								<i class="fas fa-plus"></i> {{Ajouter}}
+							</button>
+						</span>
+					</div>
+					<span class="help-block">{{Le tableau créé démarre vide : ajoute ses tuiles juste en dessous.}}</span>
 				</div>
 			</div>
 		</fieldset>
@@ -359,7 +425,7 @@ function hb_icon_options($icons, $selected = '') {
 		switch: 'Prise', shutter: 'Volet', camera: 'Caméra', button: 'Bouton', scene: 'Scène'
 	};
 
-	var HB = { rooms: [], tiles: [], picked: null, timer: null };
+	var HB = { rooms: [], tiles: [], picked: null, timer: null, boardSlug: <?php echo json_encode($boardSlug); ?> };
 
 	function esc(s) {
 		return String(s === null || s === undefined ? '' : s)
@@ -370,6 +436,9 @@ function hb_icon_options($icons, $selected = '') {
 	function call(action, data) {
 		var body = new URLSearchParams();
 		body.append('action', action);
+		/* Toujours le tableau affiché par cette page : le serveur refuse les
+		   tuiles d'un autre tableau. */
+		if (HB.boardSlug) { body.append('b', HB.boardSlug); }
 		Object.keys(data || {}).forEach(function (k) { body.append(k, data[k]); });
 		return fetch(API, { method: 'POST', body: body, credentials: 'same-origin' })
 			.then(function (r) { return r.json(); })
@@ -560,10 +629,62 @@ function hb_icon_options($icons, $selected = '') {
 		call('saveSettings', {
 			homeName: document.getElementById('hb-home-name').value,
 			showClock: document.getElementById('hb-show-clock').checked ? 1 : 0,
-			wallMode: document.getElementById('hb-wall-mode').checked ? 1 : 0,
 			refresh: document.getElementById('hb-refresh').value
 		}).then(function () { ok('{{Réglages enregistrés}}'); }).catch(ko);
 	});
+
+	/* ---------------- Tableaux de bord ---------------- */
+
+	/* Changer de tableau recharge la page : les pièces, les tuiles et le voile
+	   affichés ensuite portent tous sur le tableau choisi. */
+	function boardPage(id) {
+		call('selectBoard', { id: id }).then(function () {
+			window.location.reload();
+		}).catch(ko);
+	}
+
+	(function boardHandlers() {
+		var sel = document.getElementById('hb-board-select');
+		if (sel) {
+			sel.addEventListener('change', function () {
+				call('selectBoard', { id: sel.value }).then(function () {
+					window.location.reload();
+				}).catch(ko);
+			});
+		}
+		var add = document.getElementById('hb-board-add');
+		if (add) {
+			add.addEventListener('click', function () {
+				var inp = document.getElementById('hb-board-name');
+				var name = (inp.value || '').trim();
+				if (!name) { ko({ message: '{{Donne un nom au nouveau tableau}}' }); return; }
+				call('saveBoard', { id: 0, name: name }).then(function (b) {
+					boardPage(b.id);
+				}).catch(ko);
+			});
+		}
+		var ren = document.getElementById('hb-board-rename');
+		if (ren) {
+			ren.addEventListener('click', function () {
+				var name = window.prompt('{{Nouveau nom du tableau}}', document.getElementById('hb-board-select').selectedOptions[0].textContent.trim());
+				if (name === null) { return; }
+				name = name.trim();
+				if (!name) { return; }
+				call('saveBoard', { id: <?php echo (int) ($hbBoard['id'] ?? 0); ?>, name: name }).then(function () {
+					window.location.reload();
+				}).catch(ko);
+			});
+		}
+		var del = document.getElementById('hb-board-delete');
+		if (del) {
+			del.addEventListener('click', function () {
+				if (!window.confirm('{{Supprimer ce tableau et toutes ses tuiles ? Les pièces sont conservées.}}')) { return; }
+				call('deleteBoard', { id: <?php echo (int) ($hbBoard['id'] ?? 0); ?> }).then(function (list) {
+					boardPage(list && list.length ? list[0].id : 0);
+				}).catch(ko);
+			});
+		}
+	})();
 
 	/* ---------------- Mode mur ---------------- */
 
