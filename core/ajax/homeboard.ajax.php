@@ -32,6 +32,32 @@ try {
 
 	$action = init('action');
 
+	/* Défense CSRF complémentaire : Jeedom 4.4+ n'expose plus de jeton CSRF
+	   (ajax::getToken() renvoie ''), on s'appuie donc sur POST + même origine.
+	   Un formulaire hostile d'un autre site n'a ni le bon Origin ni un
+	   Sec-Fetch-Site same-origin. */
+	$writeActions = array('exec', 'saveSettings', 'saveRoom', 'deleteRoom', 'saveTile',
+		'saveTiles', 'deleteTile', 'import');
+	if (in_array($action, $writeActions, true)) {
+		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
+		if ($site !== '' && !in_array($site, array('same-origin', 'none'), true)) {
+			throw new Exception('403 Requête cross-origin refusée');
+		}
+		$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+		if ($origin !== '') {
+			$o = parse_url($origin);
+			$ohost = isset($o['host']) ? strtolower($o['host']) : '';
+			$oport = isset($o['port']) ? (int) $o['port'] : null;
+			$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+			$h = parse_url('http://' . $host);
+			$hhost = isset($h['host']) ? strtolower($h['host']) : '';
+			$hport = isset($h['port']) ? (int) $h['port'] : null;
+			if ($ohost === '' || $ohost !== $hhost || ($oport !== null && $hport !== null && $oport !== $hport)) {
+				throw new Exception('403 Origin invalide');
+			}
+		}
+	}
+
 	$adminActions = array('saveSettings', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
 		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import');
 	if (in_array($action, $adminActions, true) && !isConnect('admin')) {

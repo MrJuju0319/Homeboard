@@ -612,6 +612,7 @@ function hb_icon_options($icons, $selected = '') {
 			rows.push({
 				cmd_id: r.cmd_id,
 				object: r.object,
+				room: r.room,
 				room_icon: r.room_icon,
 				label: tr.querySelector('.hb-scan-label').value,
 				kind: tr.querySelector('.hb-scan-kind').value,
@@ -627,7 +628,8 @@ function hb_icon_options($icons, $selected = '') {
 		btn.disabled = true;
 		call('import', { rows: JSON.stringify(rows) }).then(function (res) {
 			document.getElementById('hb-import-status').textContent = '✓ ' + res.created +
-				(res.created > 1 ? ' tuiles importées' : ' tuile importée');
+				(res.created > 1 ? ' tuiles importées' : ' tuile importée') +
+				(res.skipped ? ' · ' + res.skipped + ' déjà présente(s), ignorée(s)' : '');
 			SCAN = [];
 			document.getElementById('hb-scan-results').style.display = 'none';
 			document.getElementById('hb-scan-toolbar').style.display = 'none';

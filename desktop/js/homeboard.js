@@ -39,7 +39,7 @@
 		fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-3 1-7 4-7 2 0 3 2 3 4 0 2-2 3-5 3z"/><path d="M14 12c3 0 7 1 7 4 0 2-2 3-4 3-2 0-3-2-3-5z"/><path d="M12 14c0 3-1 7-4 7-2 0-3-2-3-4 0-2 2-3 5-3z"/><path d="M10 12c-3 0-7-1-7-4 0-2 2-3 4-3 2 0 3 2 3 5z"/>',
 		car: '<path d="M5 17h14"/><path d="M6.5 17V13l1.8-4.2A2 2 0 0 1 10.1 7.5h3.8a2 2 0 0 1 1.8 1.3L17.5 13v4"/><path d="M4 13h16"/><circle cx="8" cy="17.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>',
 		chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
-		gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.6M12 18.9v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M2.5 12h2.6M18.9 12h2.6M4.2 19.8l1.9-1.9M17.9 6.1l1.9-1.9"/>',
+		gear: '<path d="M4 7h9M17 7h3M4 17h4M12 17h8"/><circle cx="15" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
 		shrink: '<path d="M9 3v6H3"/><path d="M3 9l6-6"/><path d="M15 21v-6h6"/><path d="M21 15l-6 6"/>',
 		close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 		install: '<path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
@@ -106,7 +106,23 @@
 			url = API + '?' + qs;
 		}
 		return fetch(url, opts)
-			.then(function (r) { return r.json(); })
+			.then(function (r) {
+				if (r.status === 401 || r.status === 403) {
+					var e1 = new Error('Session expirée ou droits insuffisants — recharge la page');
+					e1.session = true;
+					throw e1;
+				}
+				if (!r.ok) { throw new Error('Erreur HTTP ' + r.status); }
+				var ct = r.headers.get('Content-Type') || '';
+				if (ct.indexOf('json') === -1) {
+					/* Jeedom renvoie la page de login en HTML quand la session
+					   a expiré : le dire clairement plutôt qu'une erreur JSON. */
+					var e2 = new Error('Réponse inattendue (session expirée ?) — recharge la page');
+					e2.session = true;
+					throw e2;
+				}
+				return r.json();
+			})
 			.then(function (j) {
 				if (!j || j.state !== 'ok') { throw new Error((j && j.result) ? j.result : 'Erreur API'); }
 				return j.result;
@@ -319,7 +335,11 @@
 
 	function tileHtml(t, showRoom) {
 		var on = isOn(t);
-		var cls = 'hb-tile hb-tile--' + t.kind;
+		/* Le type vient du serveur mais il est écrit dans un attribut class :
+		   on n'accepte qu'une valeur alphabétique connue. */
+		var kind = /^(light|thermostat|sensor|switch|shutter|camera)$/.test(t.kind) ? t.kind : 'switch';
+		var cls = 'hb-tile hb-tile--' + kind;
+		if (t.caps && t.caps.canExec === false) { cls += ' is-locked'; }
 		if (t.size === 'wide') { cls += ' hb-tile--wide'; }
 		if (t.size === 'tall') { cls += ' hb-tile--tall'; }
 		cls += on ? ' is-on' : ' is-off';
@@ -642,14 +662,19 @@
 				'" data-act="toggle">' + svg('power') + '<span>' + (on ? 'Allumée' : 'Éteinte') +
 				'</span></button></div>';
 			if (c.briSet && c.bri) {
-				var b = bri === null ? 0 : Math.round(bri);
+				var bmin = num(c.briMin); if (bmin === null) { bmin = 0; }
+				var bmax = num(c.briMax); if (bmax === null) { bmax = 100; }
+				var bstep = num(c.briStep) || 1;
+				var b = bri === null ? bmin : Math.round(bri);
+				var bpct = bmax > bmin ? Math.round((b - bmin) / (bmax - bmin) * 100) : 0;
 				html += '<div class="hb-slider">' +
-					'<input type="range" min="0" max="100" step="1" value="' + b +
-					'" style="--hb-fill:' + b + '%" aria-label="Luminosité">' +
-					'<span class="hb-slider__pct">' + b + ' %</span></div>' +
+					'<input type="range" min="' + bmin + '" max="' + bmax + '" step="' + bstep +
+					'" value="' + b + '" data-fill="' + bpct + '" aria-label="Luminosité">' +
+					'<span class="hb-slider__pct">' + bpct + ' %</span></div>' +
 					'<div class="hb-presets">' +
 					[20, 50, 75, 100].map(function (p) {
-						return '<button data-act="preset" data-value="' + p + '">' + p + ' %</button>';
+						var v = Math.round(bmin + (bmax - bmin) * p / 100);
+						return '<button data-act="preset" data-value="' + v + '">' + p + ' %</button>';
 					}).join('') + '</div>';
 			}
 		} else if (t.kind === 'thermostat') {
@@ -702,6 +727,7 @@
 			'<div class="hb-sheet__panel" role="dialog" aria-modal="true" aria-label="' + esc(t.label) + '">' +
 			detailHtml(t) + '</div>';
 		document.body.appendChild(el);
+		applyFillVars(el);
 		S.sheet = { el: el, tile: t, kind: 'detail' };
 		document.body.classList.add('hb-noscroll');
 		el.addEventListener('click', detailClick);
@@ -736,7 +762,19 @@
 		if (!t) { return; }
 		S.sheet.tile = t;
 		var panel = S.sheet.el.querySelector('.hb-sheet__panel');
-		if (panel) { panel.innerHTML = detailHtml(t); }
+		if (panel) {
+			panel.innerHTML = detailHtml(t);
+			applyFillVars(panel);
+		}
+	}
+
+	/* Les valeurs de style sont posées via CSSOM et non en attribut inline :
+	   la CSP de la PWA n'autorise pas les styles inline. */
+	function applyFillVars(scope) {
+		if (!scope) { return; }
+		Array.prototype.forEach.call(scope.querySelectorAll('[data-fill]'), function (el) {
+			el.style.setProperty('--hb-fill', el.getAttribute('data-fill') + '%');
+		});
 	}
 
 	function detailClick(e) {
@@ -745,6 +783,7 @@
 		if (!b || !S.sheet) { return; }
 		var t = S.sheet.tile;
 		var c = t.caps || {};
+		if (!canAct(t)) { return; }
 		var act = b.getAttribute('data-act');
 		if (act === 'toggle') {
 			toggle(t);
@@ -766,10 +805,10 @@
 			var inp = S.sheet.el.querySelector('input[type="range"]');
 			if (inp) {
 				inp.value = v;
-				inp.style.setProperty('--hb-fill', v + '%');
+				inp.style.setProperty('--hb-fill', fillPct(inp) + '%');
 			}
 			var pct = S.sheet.el.querySelector('.hb-slider__pct');
-			if (pct) { pct.textContent = v + ' %'; }
+			if (pct) { pct.textContent = fillPct(inp) + ' %'; }
 			haptic();
 			exec(c.briSet, v, { id: c.bri, value: v });
 			setTimeout(refreshDetail, 600);
@@ -786,9 +825,19 @@
 	function detailInput(e) {
 		if (!e.target.matches || !e.target.matches('input[type="range"]')) { return; }
 		S.dragging = true;
-		e.target.style.setProperty('--hb-fill', e.target.value + '%');
+		e.target.style.setProperty('--hb-fill', fillPct(e.target) + '%');
 		var pct = S.sheet.el.querySelector('.hb-slider__pct');
-		if (pct) { pct.textContent = e.target.value + ' %'; }
+		if (pct) { pct.textContent = fillPct(e.target) + ' %'; }
+	}
+
+	/* Position relative du curseur dans sa plage réelle (min/max lus côté
+	   serveur) : afficher la valeur brute serait faux pour un 0-254. */
+	function fillPct(inp) {
+		var min = Number(inp.min || 0);
+		var max = Number(inp.max || 100);
+		var v = Number(inp.value);
+		if (!(max > min)) { return 0; }
+		return Math.round((v - min) / (max - min) * 100);
 	}
 
 	function detailChange(e) {
@@ -961,18 +1010,37 @@
 		var cmdId = on ? c.off : c.on;
 		if (!cmdId) { cmdId = c.toggle; }
 		if (!cmdId) { toast('Aucune commande On/Off trouvée'); return; }
+		if (!canAct(t)) { return; }
 		var stateId = c.state || (t.state && t.state.id);
 		haptic();
 		exec(cmdId, '', { id: stateId, value: on ? 0 : 1 });
 	}
 
+	/* Tuile visible mais équipement non exécutable (profil restreint) : la
+	   commande ne part pas et l'utilisateur est prévenu. */
+	function canAct(t) {
+		if (t && t.caps && t.caps.canExec === false) {
+			toast('Droits insuffisants sur cet équipement');
+			return false;
+		}
+		return true;
+	}
+
 	function stepSetpoint(t, dir) {
 		var c = t.caps || {};
-		if (!c.setSetpoint) { return; }
+		if (!c.setSetpoint || !canAct(t)) { return; }
 		var cur = num(val(c.setpoint) ? val(c.setpoint).value : null);
-		if (cur === null) { cur = 19; }
-		var next = Math.round((cur + (dir === 'plus' ? 0.5 : -0.5)) * 2) / 2;
-		next = Math.max(5, Math.min(30, next));
+		if (cur === null) {
+			/* Sans consigne réelle, on ne devine pas : envoyer une valeur
+			   arbitraire à un thermostat est pire que ne rien faire. */
+			toast('Consigne indisponible — réessaie dans un instant');
+			return;
+		}
+		var step = num(c.spStep) || 0.5;
+		var min = num(c.spMin); if (min === null) { min = 5; }
+		var max = num(c.spMax); if (max === null) { max = 30; }
+		var next = Math.round((cur + (dir === 'plus' ? step : -step)) / step) * step;
+		next = Math.max(min, Math.min(max, Math.round(next * 100) / 100));
 		haptic();
 		exec(c.setSetpoint, next, { id: c.setpoint, value: next });
 	}
@@ -980,6 +1048,7 @@
 	function onAct(t, el) {
 		var act = el.getAttribute('data-act');
 		var c = t.caps || {};
+		if (!canAct(t)) { return; }
 		if (act === 'plus' || act === 'minus') {
 			stepSetpoint(t, act);
 		} else if (act === 'mode') {
@@ -1115,9 +1184,16 @@
 		S.rooms.forEach(function (r) {
 			r.tiles.forEach(function (t) {
 				var c = t.caps || {};
-				[c.state, c.bri, c.temp, c.setpoint, (t.state && t.state.id)].forEach(function (id) {
+				[c.state, c.bri, c.temp, c.setpoint, (t.state && t.state.id),
+					(t.chart && t.chart.cmd_id)].forEach(function (id) {
 					if (id) { out[id] = 1; }
 				});
+			});
+		});
+		S.favorites.forEach(function (t) {
+			var c = t.caps || {};
+			[c.state, c.bri, c.temp, c.setpoint, (t.chart && t.chart.cmd_id)].forEach(function (id) {
+				if (id) { out[id] = 1; }
 			});
 		});
 		return Object.keys(out);
@@ -1194,6 +1270,13 @@
 
 	function boot() {
 		if (!bind()) { return; }
+		/* Service worker : uniquement sur la page PWA (pas sur le dashboard
+		   Jeedom, où il n'a rien à faire). */
+		if ('serviceWorker' in navigator && /\/plugins\/homeboard\/pwa\//.test(location.pathname)) {
+			window.addEventListener('load', function () {
+				navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
+			});
+		}
 		api({ action: 'layout' }).then(function (data) {
 			S.rooms = data.rooms || [];
 			S.favorites = data.favorites || [];
@@ -1210,7 +1293,7 @@
 			schedule();
 			poll();
 		}).catch(function (e) {
-			root.innerHTML = '<div class="hb-empty" style="margin:24px">Impossible de charger le tableau de bord.<br>' +
+			root.innerHTML = '<div class="hb-empty hb-empty--error">Impossible de charger le tableau de bord.<br>' +
 				esc(e.message) + '</div>';
 		});
 

@@ -18,6 +18,12 @@ aucun build : PHP + JS natif.
 - **Temps réel** : rafraîchissement configurable (3 s par défaut), mise à jour
   optimiste au clic (confirmation par le retour d'état), rendu incrémental
   (seules les tuiles dont la valeur change sont redessinées).
+- **Bornes réelles** : les plages (min/max/pas) des thermostats et des
+  variateurs sont lues dans la configuration des commandes Jeedom (repli
+  5–30 °C / 0,5 °C et 0–100). Sans consigne connue, les boutons +/− refusent
+  d'envoyer une valeur devinée.
+- **Import** : les commandes déjà tuilées sont ignorées côté serveur (compteur
+  « déjà présente(s) ») et la pièce retenue par l'analyse est conservée.
 - **Responsive** : 2 colonnes sur téléphone, 4 sur tablette, 6 sur écran 16".
   Navigation par chips sur mobile, barre latérale au-delà de 1100 px.
 - **PWA** : `plugins/homeboard/pwa/index.php` s'installe sur l'écran d'accueil
@@ -86,16 +92,28 @@ aucun build : PHP + JS natif.
 - Toutes les actions d'écriture et `exec()` passent en **POST** ; les lectures
   (`layout`, `values`, `history`, `scan`, `searchCmd`, `adminData`) sont les
   seules autorisées en GET. `core/ajax/homeboard.ajax.php` appelle `ajax::init()`,
-  qui refuse toute autre action demandée en GET : une balise `<img>` ou un lien
-  piégé ouvert depuis une session Jeedom ne peut donc pas exécuter un équipement
-  ni effacer la configuration.
-- Les commandes d'administration exigent `isConnect('admin')` ; l'exécution
-  vérifie `$eqLogic->hasRight('x')` et l'affichage filtre sur `hasRight('r')`,
-  donc un utilisateur Jeedom à accès restreint ne voit ni les tuiles ni
-  l'historique des équipements qu'il n'a pas le droit de lire.
-- Aucune donnée d'équipement n'est mise en cache par le service worker (seuls
-  le shell et les CSS/JS versionnés le sont) ; une réponse redirigée (session
-  expirée) n'entre jamais dans le cache.
+  qui refuse toute autre action demandée en GET.
+- En complément (Jeedom 4.4+ n'expose plus de jeton CSRF), chaque écriture
+  vérifie l'origine : `Sec-Fetch-Site` doit valoir `same-origin` et l'en-tête
+  `Origin`, quand il est présent, doit correspondre à l'hôte. Une page tierce ne
+  peut donc pas déclencher un équipement via une session ouverte.
+- La commande pilote d'une tuile doit être une commande **d'information** :
+  `saveTile()` refuse une commande d'action, `adminData()` et `buildTile()`
+  n'exécutent jamais une action (sinon l'action partait à l'affichage).
+- Les valeurs exécutées sont validées côté serveur : bornes `minValue`/`maxValue`
+  pour un slider, liste `listValue` pour un select, format `#RRGGBB` pour une
+  couleur, longueur bornée pour un message.
+- `kind`, `icon` et `size` sont restreints à des listes fermées côté PHP, et le
+  type de tuile est écrit dans un attribut `class` via une valeur filtrée.
+- Les écritures d'administration exigent `isConnect('admin')` ; l'exécution
+  vérifie `$eqLogic->hasRight('x')` et l'affichage filtre sur `hasRight('r')`.
+  Sans droit d'exécution, la tuile est grisée et la commande ne part pas.
+- La CSP de la PWA est stricte (aucun script ni style inline, pas d'`eval`,
+  `object-src 'none'`, `form-action 'self'`) : le peu de style dynamique passe
+  par le CSSOM.
+- Le service worker ne touche qu'aux caches `homeboard-*`, ne lit que le sien,
+  n'intercepte que les URL du plugin et ne met jamais en cache une réponse
+  redirigée (session expirée).
 
 ## Notes techniques
 

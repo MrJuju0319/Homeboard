@@ -145,16 +145,29 @@ class homeboard extends eqLogic {
 		if (!is_object($cmd)) {
 			throw new Exception('Commande Jeedom introuvable (id ' . $cmdId . ')');
 		}
+		/* Une tuile est pilotée par une commande d'information : accepter une
+		   commande d'action ferait exécuter l'action à chaque affichage
+		   (buildTile → stateOf → execCmd). */
+		if ($cmd->getType() !== 'info') {
+			throw new Exception('La commande pilote doit être une commande d\'information');
+		}
 		$label = isset($_data['label']) ? trim((string) $_data['label']) : '';
 		if ($label === '') {
 			$eq = $cmd->getEqLogic();
 			$label = is_object($eq) ? $eq->getName() : $cmd->getName();
 		}
-		$kind = isset($_data['kind']) && $_data['kind'] !== '' ? (string) $_data['kind'] : 'auto';
+		$label = mb_substr($label, 0, 191);
+		$kind = self::validKind(isset($_data['kind']) ? $_data['kind'] : 'auto');
 		$icon = isset($_data['icon']) ? (string) $_data['icon'] : '';
-		$size = isset($_data['size']) && in_array($_data['size'], array('normal', 'wide', 'tall')) ? $_data['size'] : 'normal';
+		if ($icon !== '' && !in_array($icon, self::iconList(), true)) {
+			$icon = '';
+		}
+		$size = isset($_data['size']) && in_array($_data['size'], array('normal', 'wide', 'tall'), true) ? $_data['size'] : 'normal';
 		$fav = isset($_data['isFavorite']) ? (int) ((bool) $_data['isFavorite']) : 0;
 		$roomId = isset($_data['room_id']) ? (int) $_data['room_id'] : 0;
+		if ($roomId > 0 && !self::roomExists($roomId)) {
+			$roomId = 0;
+		}
 		$pos = isset($_data['pos']) ? (int) $_data['pos'] : 0;
 		if ($id > 0) {
 			DB::Prepare('UPDATE homeboard_tile SET room_id = ?, cmd_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
@@ -171,6 +184,19 @@ class homeboard extends eqLogic {
 		DB::Prepare('DELETE FROM homeboard_tile WHERE id = ?', array((int) $_id));
 	}
 
+	/* Types de tuile autorisés : la valeur est écrite dans un attribut class
+	   côté JavaScript, une chaîne libre serait une injection persistante. */
+	public static function validKind($_kind) {
+		$kinds = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera');
+		$k = trim((string) $_kind);
+		return in_array($k, $kinds, true) ? $k : 'auto';
+	}
+
+	private static function roomExists($_id) {
+		$row = DB::Prepare('SELECT id FROM homeboard_room WHERE id = ?', array((int) $_id), DB::FETCH_TYPE_ROW);
+		return is_array($row) && !empty($row);
+	}
+
 	public static function saveTilesBulk($_rows) {
 		$rows = json_decode($_rows, true);
 		if (!is_array($rows)) {
@@ -184,7 +210,7 @@ class homeboard extends eqLogic {
 					continue;
 				}
 				$id = (int) $row['id'];
-				$kind = (isset($row['kind']) && $row['kind'] !== '') ? (string) $row['kind'] : 'auto';
+				$kind = self::validKind(isset($row['kind']) ? $row['kind'] : 'auto');
 				$size = (isset($row['size']) && in_array($row['size'], array('normal', 'wide', 'tall'), true)) ? $row['size'] : 'normal';
 				DB::Prepare('UPDATE homeboard_tile SET room_id = ?, label = ?, kind = ?, icon = ?, size = ?, isFavorite = ?, pos = ? WHERE id = ?',
 					array((int) (isset($row['room_id']) ? $row['room_id'] : 0), trim((string) (isset($row['label']) ? $row['label'] : '')),
@@ -297,6 +323,21 @@ class homeboard extends eqLogic {
 		$id = function ($cmd) {
 			return is_object($cmd) ? (int) $cmd->getId() : null;
 		};
+		/* Bornes réelles lues dans la configuration de la commande Jeedom
+		   (minValue / maxValue / step), avec repli sur les valeurs usuelles. */
+		$rangeOf = function ($cmd, $defMin, $defMax, $defStep) {
+			if (!is_object($cmd)) {
+				return array($defMin, $defMax, $defStep);
+			}
+			$min = $cmd->getConfiguration('minValue', '');
+			$max = $cmd->getConfiguration('maxValue', '');
+			$step = $cmd->getConfiguration('step', '');
+			return array(
+				(is_numeric($min)) ? (float) $min : $defMin,
+				(is_numeric($max)) ? (float) $max : $defMax,
+				(is_numeric($step) && (float) $step > 0) ? (float) $step : $defStep,
+			);
+		};
 
 		if ($_kind === 'light') {
 			$caps['state'] = $id($find(array('LIGHT_STATE'), 'info'));
@@ -312,11 +353,19 @@ class homeboard extends eqLogic {
 			$caps['bri'] = $id($find(array('LIGHT_BRIGHTNESS'), 'info'));
 			$caps['briSet'] = $id($find(array('LIGHT_SLIDER', 'LIGHT_SET_BRIGHTNESS'), 'action'));
 			$caps['colorSet'] = $id($find(array('LIGHT_SET_COLOR'), 'action'));
+			$rng = $rangeOf($find(array('LIGHT_SLIDER', 'LIGHT_SET_BRIGHTNESS'), 'action'), 0, 100, 1);
+			$caps['briMin'] = $rng[0];
+			$caps['briMax'] = $rng[1];
+			$caps['briStep'] = $rng[2];
 		} elseif ($_kind === 'thermostat') {
 			$caps['state'] = $id($find(array('THERMOSTAT_STATE_NAME'), 'info'));
 			$caps['temp'] = $id($find(array('THERMOSTAT_TEMPERATURE'), 'info'));
 			$caps['setpoint'] = $id($find(array('THERMOSTAT_SETPOINT'), 'info'));
 			$caps['setSetpoint'] = $id($find(array('THERMOSTAT_SET_SETPOINT'), 'action'));
+			$rng = $rangeOf($find(array('THERMOSTAT_SET_SETPOINT'), 'action'), 5, 30, 0.5);
+			$caps['spMin'] = $rng[0];
+			$caps['spMax'] = $rng[1];
+			$caps['spStep'] = $rng[2];
 			$modes = array();
 			foreach ($byGt as $gt => $cmds) {
 				if ($gt !== 'THERMOSTAT_SET_MODE' && $gt !== 'MODE_SET_STATE') {
@@ -442,6 +491,12 @@ class homeboard extends eqLogic {
 				$stateCmd = $tmp;
 			}
 		}
+		/* Filet de sécurité pour les tuiles enregistrées avant le contrôle de
+		   saveTile() : stateOf() exécute la commande, donc jamais une action. */
+		if ($stateCmd->getType() !== 'info') {
+			return null;
+		}
+		$caps['canExec'] = (!is_object($eq) || !method_exists($eq, 'hasRight')) ? true : (bool) $eq->hasRight('x');
 		$extra = array();
 		foreach (array('temp', 'setpoint', 'bri') as $key) {
 			if (!empty($caps[$key])) {
@@ -502,6 +557,13 @@ class homeboard extends eqLogic {
 		   requête SQL directe sur `history` vide les vues 7 j et 30 j. */
 		$rows = history::all((int) $_cmdId, $start, date('Y-m-d H:i:s'));
 		$buckets = array();
+		/* Statistiques pondérées sur les mesures réelles : moyenner les moyennes
+		   de tranches donne un résultat faux quand une tranche est plus dense. */
+		$realN = 0;
+		$realSum = 0.0;
+		$realMin = null;
+		$realMax = null;
+		$lastRaw = null;
 		foreach ((array) $rows as $r) {
 			/* history::all() renvoie des objets history (getters), pas des
 			   tableaux : on accepte les deux formes. */
@@ -523,31 +585,27 @@ class homeboard extends eqLogic {
 			if (!isset($buckets[$k])) {
 				$buckets[$k] = array('sum' => 0, 'n' => 0);
 			}
-			$buckets[$k]['sum'] += (float) $rawVal;
+			$val = (float) $rawVal;
+			$buckets[$k]['sum'] += $val;
 			$buckets[$k]['n']++;
+			$realN++;
+			$realSum += $val;
+			$realMin = ($realMin === null) ? $val : min($realMin, $val);
+			$realMax = ($realMax === null) ? $val : max($realMax, $val);
+			$lastRaw = $val;
 		}
 		ksort($buckets);
 		$points = array();
-		$min = null;
-		$max = null;
-		$sum = 0;
-		$cnt = 0;
-		$last = null;
 		foreach ($buckets as $ts => $b) {
-			$v = $b['sum'] / max(1, $b['n']);
-			$points[] = array((int) $ts * 1000, round($v, 2));
-			$min = ($min === null) ? $v : min($min, $v);
-			$max = ($max === null) ? $v : max($max, $v);
-			$sum += $v;
-			$cnt++;
-			$last = $v;
+			$points[] = array((int) $ts * 1000, round($b['sum'] / max(1, $b['n']), 2));
 		}
 		return array(
 			'points' => $points,
-			'min' => $min === null ? null : round($min, 2),
-			'max' => $max === null ? null : round($max, 2),
-			'avg' => $cnt ? round($sum / $cnt, 2) : null,
-			'last' => $last === null ? null : round($last, 2),
+			'min' => $realMin === null ? null : round($realMin, 2),
+			'max' => $realMax === null ? null : round($realMax, 2),
+			'avg' => $realN ? round($realSum / $realN, 2) : null,
+			'last' => $lastRaw === null ? null : round($lastRaw, 2),
+			'count' => $realN,
 			'unit' => (string) $cmd->getUnite(),
 			'label' => (string) $cmd->getName(),
 			'period' => $_period,
@@ -738,11 +796,45 @@ class homeboard extends eqLogic {
 		if ($_value === null || $_value === '') {
 			$cmd->execCmd();
 		} else {
-			/* Jeedom attend une clé différente selon le sous-type : 'slider'
-			   pour une commande de type slider, 'select' pour une liste, etc.
-			   Une clé 'slider' sur un select est ignorée silencieusement. */
+			/* Validation de la valeur selon le sous-type avant exécution :
+			   une valeur hors bornes ou hors liste est refusée côté serveur. */
+			$sub = $cmd->getSubType();
+			if ($sub === 'slider') {
+				if (!is_numeric($_value)) {
+					throw new Exception('Valeur non numérique');
+				}
+				$v = (float) $_value;
+				$min = $cmd->getConfiguration('minValue', '');
+				$max = $cmd->getConfiguration('maxValue', '');
+				if (is_numeric($min) && $v < (float) $min) {
+					$v = (float) $min;
+				}
+				if (is_numeric($max) && $v > (float) $max) {
+					$v = (float) $max;
+				}
+				$_value = $v;
+			} elseif ($sub === 'select') {
+				$list = (string) $cmd->getConfiguration('listValue', '');
+				if ($list !== '') {
+					$allowed = array();
+					foreach (explode(';', $list) as $pair) {
+						$bits = explode('|', $pair);
+						$allowed[] = trim($bits[0]);
+					}
+					if (!in_array((string) $_value, $allowed, true)) {
+						throw new Exception('Valeur absente de la liste autorisée');
+					}
+				}
+			} elseif ($sub === 'color') {
+				if (!preg_match('/^#[0-9a-fA-F]{6}$/', (string) $_value)) {
+					throw new Exception('Couleur invalide');
+				}
+			} elseif ($sub === 'message') {
+				$_value = mb_substr((string) $_value, 0, 1000);
+			}
+			/* Jeedom attend une clé différente selon le sous-type. */
 			$key = 'slider';
-			switch ($cmd->getSubType()) {
+			switch ($sub) {
 				case 'select':
 					$key = 'select';
 					break;
@@ -948,12 +1040,22 @@ class homeboard extends eqLogic {
 		if (!is_array($rows)) {
 			throw new Exception('Données invalides');
 		}
+		if (count($rows) > 500) {
+			throw new Exception('Trop de lignes à importer (500 maximum)');
+		}
 		$rooms = array();
 		$maxRoomPos = 0;
 		foreach (self::rooms(true) as $r) {
 			$rooms[strtolower(trim($r['name']))] = (int) $r['id'];
 			$maxRoomPos = max($maxRoomPos, (int) $r['pos']);
 		}
+		/* Commandes déjà utilisées : un import répété ne doit pas recréer les
+		   tuiles (la vérification de l'interface ne suffit pas). */
+		$existing = array();
+		foreach (DB::Prepare('SELECT cmd_id FROM homeboard_tile', array(), DB::FETCH_TYPE_ALL) as $t) {
+			$existing[(int) $t['cmd_id']] = true;
+		}
+		$skipped = 0;
 		$created = 0;
 		$pos = count(self::tiles());
 		$db = DB::getConnection();
@@ -963,7 +1065,13 @@ class homeboard extends eqLogic {
 				if (!is_array($row) || empty($row['cmd_id'])) {
 					continue;
 				}
-				$roomName = trim((string) (isset($row['object']) ? $row['object'] : ''));
+				if (isset($existing[(int) $row['cmd_id']])) {
+					$skipped++;
+					continue;
+				}
+				/* La pièce retenue par scan() prime sur le nom de l'objet Jeedom :
+				   envoyer « object » recréait une pièce déjà reconnue. */
+				$roomName = trim((string) (!empty($row['room']) ? $row['room'] : (isset($row['object']) ? $row['object'] : '')));
 				if ($roomName === '') {
 					$roomName = 'Autres';
 				}
@@ -994,13 +1102,17 @@ class homeboard extends eqLogic {
 					'pos' => $pos++,
 				));
 				$created++;
+				$existing[(int) $row['cmd_id']] = true;
 			}
 			$db->commit();
 		} catch (Exception $e) {
 			$db->rollBack();
 			throw $e;
+		} catch (Throwable $e) {
+			$db->rollBack();
+			throw $e;
 		}
-		return array('created' => $created, 'rooms' => count($rooms));
+		return array('created' => $created, 'skipped' => $skipped, 'rooms' => count($rooms));
 	}
 
 	/* ============================================================
@@ -1044,7 +1156,7 @@ class homeboard extends eqLogic {
 			$cmd = cmd::byId((int) $row['cmd_id']);
 			$row['cmd_name'] = is_object($cmd) ? $cmd->getName() : '(commande supprimée)';
 			$row['eq_name'] = (is_object($cmd) && is_object($cmd->getEqLogic())) ? $cmd->getEqLogic()->getName() : '';
-			$row['state'] = is_object($cmd) ? (string) $cmd->execCmd() : '';
+			$row['state'] = (is_object($cmd) && $cmd->getType() === 'info') ? (string) $cmd->execCmd() : '';
 			$row['unite'] = is_object($cmd) ? (string) $cmd->getUnite() : '';
 			$row['generic_type'] = is_object($cmd) ? (string) $cmd->getGeneric_type() : '';
 			$row['computed_kind'] = is_object($cmd) ? self::kindFromGeneric($cmd->getGeneric_type(), $cmd->getSubType()) : 'sensor';

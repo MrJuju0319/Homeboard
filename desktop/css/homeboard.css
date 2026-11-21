@@ -39,6 +39,19 @@
 	box-sizing: border-box;
 }
 
+/* Shell PWA : page autonome, sans barre Jeedom (les règles inline ont été
+   retirées de pwa/index.php pour durcir la CSP). */
+html,
+body.hb-standalone {
+	margin: 0;
+	padding: 0;
+}
+
+body.hb-standalone {
+	background: var(--hb-bg);
+	overscroll-behavior-y: none;
+}
+
 /* ---------- Structure ---------- */
 
 .hb-app {
@@ -87,7 +100,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
-	height: 40px;
+	height: 44px;
 	padding: 0 16px;
 	border-radius: 999px;
 	border: 1px solid var(--hb-line);
@@ -152,8 +165,11 @@
 }
 
 @media (max-width: 619px) {
-	/* Sur téléphone, l'horloge est déjà dans la barre de statut */
-	.hb-head__right {
+	/* Sur téléphone on masque seulement l'horloge (déjà dans la barre de
+	   statut) : les boutons Installer / Configurer / Quitter doivent rester
+	   accessibles, c'est le cas d'usage principal de la PWA. */
+	.hb-head__right .hb-clock,
+	.hb-head__right .hb-date {
 		display: none;
 	}
 
@@ -699,8 +715,8 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 30px;
-	height: 30px;
+	width: 40px;
+	height: 40px;
 	margin-top: 10px;
 	border-radius: 50%;
 	border: 1px solid var(--hb-line);
@@ -1213,6 +1229,16 @@
 	color: var(--hb-txt);
 }
 
+/* Tuile visible mais équipement non exécutable (profil restreint) */
+.hb-tile.is-locked {
+	opacity: 0.62;
+	cursor: default;
+}
+
+.hb-empty--error {
+	margin: 24px;
+}
+
 .hb-nav__item.is-current .hb-i {
 	color: var(--hb-dim);
 }
@@ -1256,6 +1282,14 @@
 }
 
 @media (max-width: 460px) {
+	.hb-installbtn span {
+		display: none;
+	}
+
+	.hb-installbtn {
+		padding: 0 11px;
+	}
+
 	.hb-nav__item--charts span {
 		display: none;
 	}
