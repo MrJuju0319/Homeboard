@@ -141,6 +141,26 @@
 
 	function val(id) { return id && S.values[id] ? S.values[id] : null; }
 
+	/* Une valeur absente n'est pas un zéro : tant qu'aucune mesure n'est
+	   arrivée, la tuile ne doit pas annoncer « Éteinte ». */
+	function isUnknown(id) {
+		var v = val(id);
+		return !v || v.value === null || v.value === undefined || v.value === '';
+	}
+
+	/* Âge de la dernière mesure. Affiché seulement sur les mesures (une lampe
+	   allumée depuis deux heures n'a pas « trop vieilli »), et seulement
+	   au-delà de dix minutes pour ne pas encombrer. */
+	function ageLabel(ts) {
+		if (!ts) { return ''; }
+		var s = Math.floor(Date.now() / 1000) - Number(ts);
+		if (!isFinite(s) || s < 600) { return ''; }
+		if (s < 3600) { return 'il y a ' + Math.round(s / 60) + ' min'; }
+		var h = Math.floor(s / 3600);
+		if (h < 24) { return 'il y a ' + h + ' h'; }
+		return 'il y a ' + Math.floor(h / 24) + ' j';
+	}
+
 	function num(v) {
 		if (v === null || v === undefined || v === '') { return null; }
 		var n = parseFloat(String(v).replace(',', '.'));
@@ -488,7 +508,10 @@
 		var parts = [];
 		ids.forEach(function (id) {
 			var v = val(id);
-			parts.push(id ? (v ? String(v.value) : '') : '');
+			/* Sur les mesures, l'âge affiché change même quand la valeur ne
+			   bouge pas : il entre donc dans la signature. */
+			var age = (id && v && t.kind === 'sensor' && v.ts) ? Math.floor(Number(v.ts) / 60) : '';
+			parts.push(id ? (v ? String(v.value) + (age === '' ? '' : '@' + age) : '') : '');
 		});
 		return t.kind + '|' + (isOn(t) ? 1 : 0) + '|' + parts.join('/');
 	}
@@ -499,7 +522,12 @@
 		   on n'accepte qu'une valeur alphabétique connue. */
 		var kind = /^(light|thermostat|sensor|switch|shutter|camera|button|scene)$/.test(t.kind) ? t.kind : 'switch';
 		var isAction = (kind === 'scene' || kind === 'button');
+		var mainId = (t.caps && t.caps.state) || (t.state && t.state.id);
+		/* Le thermostat affiche plusieurs valeurs : sa tuile a son propre rendu
+		   et ne reçoit pas la marque « inconnu » (le mode n'est pas la mesure). */
+		var unknown = !isAction && kind !== 'thermostat' && !!mainId && isUnknown(mainId);
 		var cls = 'hb-tile hb-tile--' + kind;
+		if (unknown) { cls += ' is-unknown'; }
 		if (t.caps && t.caps.canExec === false) { cls += ' is-locked'; }
 		if (t.size === 'wide') { cls += ' hb-tile--wide'; }
 		if (t.size === 'tall') { cls += ' hb-tile--tall'; }
@@ -524,12 +552,14 @@
 			html += thermostatHtml(t, showRoom);
 		} else if (t.kind === 'sensor') {
 			var st = tileState(t);
+			var age = unknown ? '' : ageLabel(val(mainId) ? val(mainId).ts : 0);
 			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
 				(t.chart ? '<span class="hb-tile__hint">' + svg('chart') + '</span>' : '') + '</div>' +
 				'<div class="hb-tile__body">' +
-				'<div class="hb-value">' + esc(st ? st.display : '—') +
-				(st && st.unit ? '<span class="hb-value__unit">' + esc(st.unit) + '</span>' : '') + '</div>' +
+				'<div class="hb-value">' + esc(unknown ? '—' : (st ? st.display : '—')) +
+				(!unknown && st && st.unit ? '<span class="hb-value__unit">' + esc(st.unit) + '</span>' : '') + '</div>' +
 				'<div class="hb-tile__name">' + esc(t.label) + '</div>' +
+				(age ? '<div class="hb-tile__age">' + esc(age) + '</div>' : '') +
 				'</div>';
 		} else {
 			var st2 = tileState(t);
@@ -545,6 +575,7 @@
 			} else {
 				sub = on ? 'Allumé' : 'Éteint';
 			}
+			if (unknown) { sub = 'Aucune valeur'; badge = ''; }
 			if (showRoom && t.room_name) { sub = t.room_name; }
 			html += '<div class="hb-tile__top"><span class="hb-tile__icon">' + svg(t.icon) + '</span>' +
 				'<span class="hb-tile__badge">' + esc(badge) + '</span></div>' +
@@ -1145,7 +1176,7 @@
 	function setLocal(cmdId, value) {
 		if (!cmdId) { return; }
 		var prev = S.values[cmdId] || {};
-		S.values[cmdId] = { id: cmdId, value: value, display: optimisticDisplay(prev.display, value), unit: prev.unit || '' };
+		S.values[cmdId] = { id: cmdId, value: value, display: optimisticDisplay(prev.display, value), unit: prev.unit || '', ts: prev.ts || 0 };
 		S.pending[cmdId] = { value: String(value), until: Date.now() + 8000 };
 		if (!S.dragging) { refreshTiles(); }
 	}
@@ -1482,7 +1513,13 @@
 					else if (Date.now() < p.until) { return; }
 					else { delete S.pending[id]; }
 				}
-				if (!a || String(a.value) !== String(b.value) || String(a.display) !== String(b.display)) {
+				/* L'âge de la valeur fait partie de la comparaison : sinon une
+				   mesure qui ne change pas n'apprend jamais sa date et la tuile
+				   reste « sans âge ». Comparaison à la minute pour ne pas
+				   redessiner la grille à chaque seconde. */
+				var aMin = (a && a.ts) ? Math.floor(Number(a.ts) / 60) : 0;
+				var bMin = (b && b.ts) ? Math.floor(Number(b.ts) / 60) : 0;
+				if (!a || String(a.value) !== String(b.value) || String(a.display) !== String(b.display) || aMin !== bMin) {
 					S.values[id] = b;
 					changed = true;
 				}

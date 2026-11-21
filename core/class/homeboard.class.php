@@ -1056,10 +1056,24 @@ class homeboard extends eqLogic {
 				continue;
 			}
 			$value = $cmd->execCmd();
+			/* Date de la dernière valeur réellement reçue : sans elle, une
+			   mesure figée depuis des heures est indiscernable d'une mesure
+			   fraîche, et l'écran affirme quelque chose qu'il ne sait pas. */
+			$stamp = 0;
+			if (method_exists($cmd, 'getValueDate')) {
+				$date = (string) $cmd->getValueDate();
+				if ($date !== '') {
+					$parsed = strtotime($date);
+					if ($parsed) {
+						$stamp = (int) $parsed;
+					}
+				}
+			}
 			$out[$id] = array(
 				'value' => $value,
 				'display' => self::formatValue($cmd, $value),
 				'unit' => (string) $cmd->getUnite(),
+				'ts' => $stamp,
 			);
 		}
 		return $out;

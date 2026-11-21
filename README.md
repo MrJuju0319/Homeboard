@@ -111,6 +111,27 @@ Deux types de tuiles déclenchent une action au lieu d'afficher un état.
 - L'appui long sur une tuile d'action ne cherche pas à ouvrir une feuille de
   détail : il déclenche l'action, comme un appui court.
 
+## Fiabilité de l'affichage
+
+Un tableau de bord qui affiche une valeur morte comme si elle était vivante
+ment. Deux cas sont distingués, sans aucun réglage :
+
+- **Aucune valeur** : la commande n'a jamais rien renvoyé (capteur muet,
+  commande supprimée, équipement désactivé). La tuile prend une bordure
+  pointillée, la valeur passe en italique grise et la sous-ligne affiche
+  « Aucune valeur » — au lieu d'annoncer « Éteinte » ou zéro. Trois indices
+  (bordure, style, mot), dont deux lisibles en noir et blanc.
+- **Âge de la mesure** : sous le nom, en petit et gris, « il y a 22 min »,
+  « il y a 7 h ». Uniquement sur les tuiles de mesure, et seulement au-delà de
+  dix minutes : un état de lampe inchangé depuis deux heures n'a rien
+  d'anormal, alors qu'une température figée depuis sept heures mérite un coup
+  d'œil. L'âge vient de la date réelle de la dernière valeur Jeedom, pas de
+  l'heure d'affichage.
+
+Ce comportement suit les recommandations des guides de conception de panneaux
+muraux ([états multiples et péremption](https://artofstyleframe.com/blog/smart-home-dashboard-ui-design/),
+[lisibilité à deux mètres](https://artofstyleframe.com/blog/wall-mounted-tablet-ui-design/)).
+
 ## Mode mur
 
 Case à cocher **Mode mur** dans la configuration (désactivée par défaut), avec son

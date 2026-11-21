@@ -384,6 +384,26 @@ body.hb-standalone {
 	margin-bottom: 6px;
 }
 
+/* Valeur inconnue : ce n'est ni « éteint » ni « zéro ». Trois indices, dont
+   deux qui survivent à une capture en noir et blanc (bordure, mot). */
+.hb-tile.is-unknown {
+	border-style: dashed;
+	border-color: var(--hb-line-hi);
+}
+
+.hb-tile.is-unknown .hb-tile__sub,
+.hb-tile.is-unknown .hb-value {
+	color: var(--hb-mute);
+	font-style: italic;
+}
+
+.hb-tile__age {
+	margin-top: 1px;
+	font-size: 10px;
+	line-height: 1.2;
+	color: var(--hb-mute);
+}
+
 .hb-tile--sensor .hb-value__unit {
 	font-size: 14px;
 	font-weight: 500;
