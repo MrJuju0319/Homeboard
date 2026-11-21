@@ -1293,6 +1293,17 @@ body.hb-asleep .hb-sleep {
 	display: flex;
 }
 
+/* Le bloc entier se décale (anti-marquage), pas seulement le texte. */
+.hb-sleep__inner {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	transform: translate(var(--hb-dx, 0px), var(--hb-dy, 0px));
+	transition: transform 2s ease;
+	will-change: transform;
+}
+
 .hb-sleep__clock {
 	font-size: clamp(56px, 12vw, 148px);
 	font-weight: 300;
@@ -1304,6 +1315,43 @@ body.hb-asleep .hb-sleep {
 
 .hb-sleep__date {
 	font-size: clamp(13px, 1.6vw, 20px);
+	color: var(--hb-dim);
+}
+
+/* Widgets du voile : conso, température, météo… */
+.hb-sleep__widgets {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: clamp(18px, 4vw, 56px);
+	margin-top: clamp(12px, 3vh, 40px);
+}
+
+.hb-sleep__w {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+}
+
+.hb-sleep__wv {
+	font-size: clamp(20px, 3vw, 38px);
+	font-weight: 300;
+	line-height: 1.1;
+	color: var(--hb-txt);
+	font-variant-numeric: tabular-nums;
+}
+
+.hb-sleep__wu {
+	font-size: 0.5em;
+	color: var(--hb-dim);
+	margin-left: 3px;
+}
+
+.hb-sleep__wl {
+	font-size: clamp(10px, 1vw, 13px);
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
 	color: var(--hb-dim);
 }
 

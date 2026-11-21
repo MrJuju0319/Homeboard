@@ -102,6 +102,9 @@ class homeboard extends eqLogic {
 		if (config::byKey('wallMode', self::PLUGIN_ID, null) === null) {
 			config::save('wallMode', 0, self::PLUGIN_ID);
 		}
+		if (config::byKey('wallDelay', self::PLUGIN_ID, null) === null) {
+			config::save('wallDelay', 2, self::PLUGIN_ID);
+		}
 	}
 
 	public static function settings() {
@@ -110,7 +113,84 @@ class homeboard extends eqLogic {
 			'showClock' => (int) config::byKey('showClock', self::PLUGIN_ID, 1),
 			'refresh' => max(2, min(30, (int) config::byKey('refresh', self::PLUGIN_ID, 3))),
 			'wallMode' => (int) config::byKey('wallMode', self::PLUGIN_ID, 0),
+			'wallDelay' => max(1, min(60, (int) config::byKey('wallDelay', self::PLUGIN_ID, 2))),
+			'wallWidgets' => self::wallWidgets(),
 		);
+	}
+
+	/* Widgets du voile de veille : au plus 4 commandes d'information, validées
+	   à l'écriture et revalidées à la lecture (une commande supprimée ou dont
+	   les droits ont changé disparaît simplement de l'affichage). */
+	public static function wallWidgets() {
+		/* config::byKey() décode déjà le JSON stocké : la valeur revient en
+		   tableau, pas en chaîne (un cast en string donnait « Array » et
+		   vidait silencieusement la liste). */
+		$raw = config::byKey('wallWidgets', self::PLUGIN_ID, array());
+		if (is_string($raw)) {
+			$raw = $raw === '' ? array() : json_decode($raw, true);
+		}
+		$rows = is_array($raw) ? $raw : array();
+		$out = array();
+		$seen = array();
+		foreach ($rows as $r) {
+			if (count($out) >= 4) {
+				break;
+			}
+			$cmdId = (int) (is_array($r) ? (isset($r['cmd']) ? $r['cmd'] : 0) : $r);
+			if ($cmdId <= 0 || isset($seen[$cmdId])) {
+				continue;
+			}
+			$cmd = cmd::byId($cmdId);
+			if (!is_object($cmd) || $cmd->getType() !== 'info') {
+				continue;
+			}
+			$eq = $cmd->getEqLogic();
+			if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+				continue;
+			}
+			$label = is_array($r) && !empty($r['label'])
+				? mb_substr(trim((string) $r['label']), 0, 32)
+				: mb_substr((string) $cmd->getName(), 0, 32);
+			$seen[$cmdId] = true;
+			$out[] = array(
+				'cmd' => $cmdId,
+				'label' => $label,
+				'unit' => (string) $cmd->getUnite(),
+			);
+		}
+		return $out;
+	}
+
+	public static function saveWall($_data) {
+		$mode = isset($_data['wallMode']) ? (int) ((bool) $_data['wallMode']) : 0;
+		$delay = isset($_data['wallDelay']) ? (int) $_data['wallDelay'] : 2;
+		$delay = max(1, min(60, $delay));
+		$rows = isset($_data['wallWidgets']) ? json_decode((string) $_data['wallWidgets'], true) : array();
+		$clean = array();
+		if (is_array($rows)) {
+			foreach ($rows as $r) {
+				if (count($clean) >= 4) {
+					break;
+				}
+				$cmdId = (int) (is_array($r) ? (isset($r['cmd']) ? $r['cmd'] : 0) : $r);
+				$cmd = cmd::byId($cmdId);
+				if (!is_object($cmd) || $cmd->getType() !== 'info') {
+					continue;
+				}
+				$eq = $cmd->getEqLogic();
+				if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+					continue;
+				}
+				$label = is_array($r) && !empty($r['label'])
+					? mb_substr(trim((string) $r['label']), 0, 32)
+					: mb_substr((string) $cmd->getName(), 0, 32);
+				$clean[] = array('cmd' => $cmdId, 'label' => $label);
+			}
+		}
+		config::save('wallMode', $mode, self::PLUGIN_ID);
+		config::save('wallDelay', $delay, self::PLUGIN_ID);
+		config::save('wallWidgets', json_encode($clean), self::PLUGIN_ID);
+		return self::settings();
 	}
 
 	public static function iconList() {

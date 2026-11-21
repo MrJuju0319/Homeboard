@@ -284,19 +284,53 @@
 	/*  Mode mur                                                           */
 	/* ------------------------------------------------------------------ */
 
-	var wall = { timer: null, clockTimer: null, asleep: false, lock: null, el: null, bound: false, delay: 120000 };
+	var wall = { timer: null, clockTimer: null, driftTimer: null, asleep: false, lock: null, el: null, bound: false, delay: 120000 };
 
-	function wallClock() {
+	/* Widgets du voile : conso, température, météo… n'importe quelle commande
+	   d'information choisie dans la configuration. Les valeurs viennent du
+	   cache de polling (elles sont ajoutées aux identifiants interrogés). */
+	function wallWidgetsInner() {
+		var list = (S.home && S.home.wallWidgets) || [];
+		var html = '';
+		list.forEach(function (w) {
+			var v = val(w.cmd);
+			var unit = (v && v.unit) ? v.unit : (w.unit || '');
+			html += '<div class="hb-sleep__w"><span class="hb-sleep__wv">' +
+				esc(v ? v.display : '—') +
+				(unit ? '<span class="hb-sleep__wu">' + esc(unit) + '</span>' : '') + '</span>' +
+				'<span class="hb-sleep__wl">' + esc(w.label) + '</span></div>';
+		});
+		return html;
+	}
+
+	function wallPaint() {
 		if (!wall.el) { return; }
 		var d = new Date();
 		var c = wall.el.querySelector('.hb-sleep__clock');
 		var dd = wall.el.querySelector('.hb-sleep__date');
+		var ww = wall.el.querySelector('.hb-sleep__widgets');
 		if (c) {
 			c.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 		}
 		if (dd) {
 			dd.textContent = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 		}
+		if (ww) { ww.innerHTML = wallWidgetsInner(); }
+	}
+
+	/* Anti-marquage : le bloc se décale de quelques pixels à intervalle
+	   régulier, comme un économiseur d'écran. Amplitude faible et bornée en
+	   pixels pour rester discret sur un grand écran comme sur une tablette. */
+	function wallDrift() {
+		if (!wall.el) { return; }
+		var inner = wall.el.querySelector('.hb-sleep__inner');
+		if (!inner) { return; }
+		var maxX = Math.min(56, Math.round(window.innerWidth * 0.06));
+		var maxY = Math.min(34, Math.round(window.innerHeight * 0.05));
+		var x = Math.round((Math.random() * 2 - 1) * maxX);
+		var y = Math.round((Math.random() * 2 - 1) * maxY);
+		inner.style.setProperty('--hb-dx', x + 'px');
+		inner.style.setProperty('--hb-dy', y + 'px');
 	}
 
 	function wallSleep() {
@@ -304,20 +338,32 @@
 			wall.el = document.createElement('div');
 			wall.el.className = 'hb-sleep';
 			wall.el.setAttribute('aria-hidden', 'true');
-			wall.el.innerHTML = '<div class="hb-sleep__clock"></div><div class="hb-sleep__date"></div>';
+			wall.el.innerHTML = '<div class="hb-sleep__inner">' +
+				'<div class="hb-sleep__clock"></div>' +
+				'<div class="hb-sleep__date"></div>' +
+				'<div class="hb-sleep__widgets"></div></div>';
 			document.body.appendChild(wall.el);
 		}
 		wall.asleep = true;
 		document.body.classList.add('hb-asleep');
-		wallClock();
+		wallPaint();
+		wallDrift();
 		clearInterval(wall.clockTimer);
-		wall.clockTimer = setInterval(wallClock, 20000);
+		wall.clockTimer = setInterval(wallPaint, 20000);
+		clearInterval(wall.driftTimer);
+		wall.driftTimer = setInterval(wallDrift, 60000);
+	}
+
+	function wallDelayMs() {
+		var m = Number(S.home && S.home.wallDelay);
+		if (!(m > 0)) { m = 2; }
+		return Math.max(1, Math.min(60, m)) * 60000;
 	}
 
 	function wallIdle() {
 		if (!S.home || !Number(S.home.wallMode)) { return; }
 		clearTimeout(wall.timer);
-		wall.timer = setTimeout(wallSleep, wall.delay);
+		wall.timer = setTimeout(wallSleep, wallDelayMs());
 	}
 
 	/* Empêche la mise en veille de l'écran mural quand le navigateur l'autorise
@@ -337,6 +383,14 @@
 			wall.asleep = false;
 			document.body.classList.remove('hb-asleep');
 			clearInterval(wall.clockTimer);
+			clearInterval(wall.driftTimer);
+			if (wall.el) {
+				var inner = wall.el.querySelector('.hb-sleep__inner');
+				if (inner) {
+					inner.style.setProperty('--hb-dx', '0px');
+					inner.style.setProperty('--hb-dy', '0px');
+				}
+			}
 			/* Le voile vient d'être retiré : le clic de réveil ne doit pas
 			   atteindre la tuile située dessous. */
 			document.addEventListener('click', function (e) {
@@ -357,6 +411,7 @@
 				wall.asleep = false;
 				clearTimeout(wall.timer);
 				clearInterval(wall.clockTimer);
+				clearInterval(wall.driftTimer);
 			} else {
 				wallIdle();
 			}
@@ -1384,6 +1439,11 @@
 				if (id) { out[id] = 1; }
 			});
 		});
+		/* Widgets du mode mur : souvent des commandes qui ne sont sur aucune
+		   tuile (conso, météo), donc à interroger explicitement. */
+		((S.home && S.home.wallWidgets) || []).forEach(function (w) {
+			if (w && w.cmd) { out[w.cmd] = 1; }
+		});
 		return Object.keys(out);
 	}
 
@@ -1421,6 +1481,7 @@
 			if (sum) { sum.textContent = summary(); }
 			if (changed) { refreshTiles(); }
 			if (S.sheet && S.sheet.kind === 'detail') { refreshDetail(); }
+			if (wall.asleep) { wallPaint(); }
 			S.polling = false;
 		}).catch(function () { S.polling = false; status(false); });
 	}

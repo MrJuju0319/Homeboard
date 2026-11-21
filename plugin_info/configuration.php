@@ -10,6 +10,7 @@ $homeName = config::byKey('homeName', 'homeboard', 'Maison');
 $showClock = (int) config::byKey('showClock', 'homeboard', 1);
 $refresh = (int) config::byKey('refresh', 'homeboard', 3);
 $wallMode = (int) config::byKey('wallMode', 'homeboard', 0);
+$wallDelay = max(1, min(60, (int) config::byKey('wallDelay', 'homeboard', 2)));
 
 $pwaUrl = rtrim((string) network::getNetworkAccess('internal'), '/') . '/plugins/homeboard/pwa/index.php';
 $dashUrl = 'index.php?v=d&p=homeboard&m=homeboard';
@@ -43,15 +44,6 @@ function hb_icon_options($icons, $selected = '') {
 				</div>
 			</div>
 			<div class="form-group">
-				<label class="col-sm-3 control-label">{{Mode mur}}</label>
-				<div class="col-sm-6">
-					<input type="checkbox" id="hb-wall-mode" <?php echo $wallMode ? 'checked' : ''; ?>>
-					<span class="help-block">
-						{{Tablette murale : voile de veille avec grande horloge après 2 min sans contact, réveil au premier toucher, et demande au navigateur de garder l'écran allumé (HTTPS).}}
-					</span>
-				</div>
-			</div>
-			<div class="form-group">
 				<label class="col-sm-3 control-label">{{Rafraîchissement}}</label>
 				<div class="col-sm-3">
 					<div class="input-group">
@@ -69,6 +61,52 @@ function hb_icon_options($icons, $selected = '') {
 					<a class="btn btn-default" href="<?php echo $dashUrl; ?>" target="_blank">
 						<i class="fas fa-external-link-alt"></i> {{Ouvrir le tableau de bord}}
 					</a>
+				</div>
+			</div>
+		</fieldset>
+
+		<fieldset>
+			<legend><i class="fas fa-moon"></i> {{Mode mur}}</legend>
+			<p class="help-block">
+				{{Pour une tablette fixée au mur : après un délai sans contact, l'écran affiche un voile noir avec
+				une grande horloge et les valeurs choisies, puis se réveille au premier toucher.}}
+			</p>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Activer}}</label>
+				<div class="col-sm-6">
+					<input type="checkbox" id="hb-wall-mode" <?php echo $wallMode ? 'checked' : ''; ?>>
+					<span class="help-block">
+						{{Voile de veille, réveil au toucher, et demande au navigateur de garder l'écran allumé (HTTPS requis pour cette dernière partie).}}
+					</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Veille après}}</label>
+				<div class="col-sm-3">
+					<div class="input-group">
+						<input type="number" class="form-control" id="hb-wall-delay" min="1" max="60" value="<?php echo (int) $wallDelay; ?>">
+						<span class="input-group-addon">{{minutes}}</span>
+					</div>
+					<span class="help-block">{{Délai sans contact avant le voile (1 à 60 minutes)}}</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Widgets}}</label>
+				<div class="col-sm-6">
+					<input type="text" class="form-control" id="hb-wall-search" placeholder="{{Ajouter une valeur : consommation, température, météo…}}" autocomplete="off">
+					<div id="hb-wall-results" class="hb-search-results" style="display:none;max-height:220px;overflow:auto"></div>
+					<table class="table table-condensed table-bordered" id="hb-wall-widgets" style="margin-top:8px"></table>
+					<span class="help-block">
+						{{Quatre valeurs au maximum, affichées sous l'heure pendant la veille. Le libellé se modifie
+						sur place ; la croix retire la valeur.}}
+					</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<div class="col-sm-offset-3 col-sm-6">
+					<button type="button" class="btn btn-success" id="hb-save-wall">
+						<i class="fas fa-check-circle"></i> {{Enregistrer le mode mur}}
+					</button>
 				</div>
 			</div>
 		</fieldset>
@@ -484,6 +522,15 @@ function hb_icon_options($icons, $selected = '') {
 			HB.tiles = d.tiles || [];
 			renderRooms();
 			renderTiles();
+			if (!WALL.loaded) {
+				WALL.loaded = true;
+				WALL.widgets = ((d.settings && d.settings.wallWidgets) || []).map(function (w) {
+					return { cmd: Number(w.cmd), label: w.label || '' };
+				});
+				var del = document.getElementById('hb-wall-delay');
+				if (del && d.settings && d.settings.wallDelay) { del.value = d.settings.wallDelay; }
+				renderWallWidgets();
+			}
 		}).catch(ko);
 	}
 
@@ -497,6 +544,109 @@ function hb_icon_options($icons, $selected = '') {
 			refresh: document.getElementById('hb-refresh').value
 		}).then(function () { ok('{{Réglages enregistrés}}'); }).catch(ko);
 	});
+
+	/* ---------------- Mode mur ---------------- */
+
+	var WALL = { widgets: [], loaded: false };
+
+	function renderWallWidgets() {
+		var tb = document.getElementById('hb-wall-widgets');
+		if (!tb) { return; }
+		if (!WALL.widgets.length) {
+			tb.innerHTML = '<tr><td class="text-center text-muted" colspan="3">{{Aucun widget — le voile n\'affichera que l\'heure}}</td></tr>';
+			return;
+		}
+		var html = '';
+		WALL.widgets.forEach(function (w, i) {
+			html += '<tr data-i="' + i + '">' +
+				'<td><input type="text" class="form-control input-sm hb-wall-label" value="' + esc(w.label) + '"></td>' +
+				'<td class="text-center"><small class="text-muted">#' + w.cmd + '</small></td>' +
+				'<td class="text-center"><i class="fas fa-times cursor hb-wall-del" title="{{Retirer}}"></i></td>' +
+				'</tr>';
+		});
+		tb.innerHTML = html;
+	}
+
+	var wallSearch = document.getElementById('hb-wall-search');
+	var wallResults = document.getElementById('hb-wall-results');
+	var wallTimer = null;
+
+	if (wallSearch) {
+		wallSearch.addEventListener('input', function () {
+			clearTimeout(wallTimer);
+			var q = wallSearch.value.trim();
+			wallTimer = setTimeout(function () {
+				call('searchCmd', { q: q, limit: 20 }).then(function (rows) {
+					var infos = (rows || []).filter(function (r) { return r.type === 'info'; });
+					if (!infos.length) {
+						wallResults.innerHTML = '<div class="hb-search-item text-muted">{{Aucun résultat}}</div>';
+						wallResults.style.display = '';
+						return;
+					}
+					var html = '';
+					infos.forEach(function (r) {
+						html += '<div class="hb-search-item" data-id="' + r.id +
+							'" data-label="' + esc(r.eq + ' — ' + r.name) + '">' +
+							'<strong>' + esc(r.eq) + '</strong> — ' + esc(r.name) +
+							' <small>(' + esc(r.unite || '—') + ')</small></div>';
+					});
+					wallResults.innerHTML = html;
+					wallResults.style.display = '';
+				}).catch(ko);
+			}, 260);
+		});
+
+		wallResults.addEventListener('click', function (e) {
+			var item = e.target.closest('.hb-search-item[data-id]');
+			if (!item) { return; }
+			if (WALL.widgets.length >= 4) {
+				jeedomUtils.showAlert({ message: '{{Quatre widgets au maximum}}', level: 'warning' });
+				return;
+			}
+			var id = Number(item.getAttribute('data-id'));
+			var dup = WALL.widgets.some(function (w) { return w.cmd === id; });
+			if (!dup) {
+				WALL.widgets.push({ cmd: id, label: item.getAttribute('data-label') });
+				renderWallWidgets();
+			}
+			wallSearch.value = '';
+			wallResults.style.display = 'none';
+		});
+	}
+
+	document.addEventListener('click', function (e) {
+		var del = e.target.closest ? e.target.closest('.hb-wall-del') : null;
+		if (!del) { return; }
+		var tr = del.closest('tr[data-i]');
+		if (!tr) { return; }
+		WALL.widgets.splice(Number(tr.getAttribute('data-i')), 1);
+		renderWallWidgets();
+	});
+
+	document.addEventListener('input', function (e) {
+		if (!e.target.classList || !e.target.classList.contains('hb-wall-label')) { return; }
+		var tr = e.target.closest('tr[data-i]');
+		if (!tr) { return; }
+		var i = Number(tr.getAttribute('data-i'));
+		if (WALL.widgets[i]) { WALL.widgets[i].label = e.target.value; }
+	});
+
+	var saveWallBtn = document.getElementById('hb-save-wall');
+	if (saveWallBtn) {
+		saveWallBtn.addEventListener('click', function () {
+			call('saveWall', {
+				wallMode: document.getElementById('hb-wall-mode').checked ? 1 : 0,
+				wallDelay: document.getElementById('hb-wall-delay').value,
+				wallWidgets: JSON.stringify(WALL.widgets)
+			}).then(function (s) {
+				WALL.widgets = (s.wallWidgets || []).map(function (w) {
+					return { cmd: Number(w.cmd), label: w.label || '' };
+				});
+				renderWallWidgets();
+				ok('{{Mode mur enregistré}}');
+			}).catch(ko);
+		});
+	}
 
 	/* ---------------- Pièces ---------------- */
 

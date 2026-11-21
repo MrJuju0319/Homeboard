@@ -36,7 +36,7 @@ try {
 	   (ajax::getToken() renvoie ''), on s'appuie donc sur POST + même origine.
 	   Un formulaire hostile d'un autre site n'a ni le bon Origin ni un
 	   Sec-Fetch-Site same-origin. */
-	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveRoom', 'deleteRoom', 'saveTile',
+	$writeActions = array('exec', 'runScenario', 'saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile',
 		'saveTiles', 'deleteTile', 'import');
 	if (in_array($action, $writeActions, true)) {
 		$site = isset($_SERVER['HTTP_SEC_FETCH_SITE']) ? $_SERVER['HTTP_SEC_FETCH_SITE'] : '';
@@ -58,7 +58,7 @@ try {
 		}
 	}
 
-	$adminActions = array('saveSettings', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
+	$adminActions = array('saveSettings', 'saveWall', 'saveRoom', 'deleteRoom', 'saveTile', 'saveTiles',
 		'deleteTile', 'searchCmd', 'adminData', 'scan', 'import', 'scenarios');
 	if (in_array($action, $adminActions, true) && !isConnect('admin')) {
 		throw new Exception('401 Unauthorized - droits administrateur requis');
@@ -125,6 +125,14 @@ try {
 			config::save('refresh', max(2, min(30, (int) init('refresh', 3))), homeboard::PLUGIN_ID);
 			config::save('wallMode', (int) init('wallMode', 0), homeboard::PLUGIN_ID);
 			ajax::success(homeboard::settings());
+			break;
+
+		case 'saveWall':
+			ajax::success(homeboard::saveWall(array(
+				'wallMode' => init('wallMode', 0),
+				'wallDelay' => init('wallDelay', 2),
+				'wallWidgets' => init('wallWidgets', '[]'),
+			)));
 			break;
 
 		case 'saveRoom':

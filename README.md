@@ -113,16 +113,25 @@ Deux types de tuiles déclenchent une action au lieu d'afficher un état.
 
 ## Mode mur
 
-Case à cocher **Mode mur** dans la configuration (désactivée par défaut).
+Case à cocher **Mode mur** dans la configuration (désactivée par défaut), avec son
+propre bloc de réglages.
 
-- Après deux minutes sans contact, un voile noir affiche une grande horloge et
-  la date ; le premier toucher réveille le tableau de bord (et ce toucher de
-  réveil n'atteint pas la tuile située dessous).
+- **Veille après** : délai sans contact avant le voile (1 à 60 minutes, 2 par
+  défaut). Un voile noir affiche une grande horloge et la date ; le premier
+  toucher réveille le tableau de bord, et ce toucher de réveil n'atteint pas la
+  tuile située dessous.
+- **Anti-marquage** : le bloc horloge + valeurs se décale de quelques pixels
+  toutes les minutes (amplitude bornée, transition douce de 2 s), comme un
+  économiseur d'écran. L'heure et les valeurs sont réécrites périodiquement, donc
+  aucun pixel fixe ne reste allumé.
+- **Widgets** : jusqu'à quatre commandes d'information affichées sous l'heure —
+  consommation, température, météo, n'importe quel retour d'état Jeedom. Elles se
+  choisissent par recherche dans la section, le libellé se modifie sur place, la
+  croix retire la valeur. Les valeurs suivent le rafraîchissement normal : elles
+  sont à jour au réveil.
 - Le navigateur est invité à ne pas laisser l'écran s'éteindre (`WakeLock`),
   quand il le permet : HTTPS obligatoire, sinon la demande est simplement
   ignorée.
-- Le rafraîchissement des états continue pendant la veille : au réveil, les
-  valeurs sont déjà à jour.
 
 ## Sécurité
 
