@@ -79,6 +79,19 @@ $hbIcons = homeboard::iconList();
 <?php include_file('desktop', 'homeboard', 'css', homeboard::PLUGIN_ID); ?>
 
 <div class="row row-overflow hb-admin">
+	<?php if (homeboard::legacyMigrationPending()) { ?>
+		<div class="alert alert-warning" style="margin:8px 15px">
+			<i class="fas fa-exclamation-triangle"></i>
+			<strong>{{Migration incomplète}}</strong> —
+			{{l'ancienne table des tableaux est toujours présente : la conversion en équipements n'a pas
+			abouti. Les données sont intactes, rien n'a été supprimé.}}
+			<?php if (count($eqLogics)) { ?>
+				{{Les tableaux déjà convertis sont utilisables ; les autres seront repris au prochain chargement.}}
+			<?php } else { ?>
+				{{Aucun tableau converti : vérifie le journal du plugin (}}<code>homeboard</code>{{) avant de continuer.}}
+			<?php } ?>
+		</div>
+	<?php } ?>
 	<div class="col-xs-12 eqLogicThumbnailDisplay">
 		<legend><i class="fas fa-cog"></i> {{Gestion}}</legend>
 		<div class="eqLogicThumbnailContainer">

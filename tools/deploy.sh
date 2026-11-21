@@ -4,7 +4,7 @@
 #   JEEDOM_HOST=root@jeedom.local ./tools/deploy.sh
 #
 # Variables (ou fichier .deploy.env à la racine du plugin, non versionné) :
-#   JEEDOM_HOST     cible SSH             (obligatoire, ex. root@192.168.1.10)
+#   JEEDOM_HOST     cible SSH             (obligatoire, ex. root@192.0.2.10)
 #   JEEDOM_PATH     dossier des plugins   (défaut : /var/www/html/plugins)
 #   JEEDOM_WEBUSER  propriétaire web      (défaut : www-data)
 set -e
@@ -22,7 +22,7 @@ PLUGINS="${JEEDOM_PATH:-/var/www/html/plugins}"
 WEBUSER="${JEEDOM_WEBUSER:-www-data}"
 
 if [ -z "$HOST" ]; then
-	echo "JEEDOM_HOST manquant. Exemple : JEEDOM_HOST=root@192.168.1.10 $0" >&2
+	echo "JEEDOM_HOST manquant. Exemple : JEEDOM_HOST=root@192.0.2.10 $0" >&2
 	exit 1
 fi
 

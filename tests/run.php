@@ -477,5 +477,43 @@ if ($others === 0) {
 
 homeboard::useBoard($defId);
 
+echo "\n[15] Sauvegarde et migration\n";
+
+check('aucune table héritée sur cette installation', homeboard::legacyTableExists() === false);
+check('migration à jour', homeboard::legacyMigrationPending() === false);
+
+/* Fausse table héritée, volontairement SANS la colonne `pos` : la lecture doit
+   échouer, ce qui vérifie qu'une erreur SQL n'est jamais confondue avec « rien à
+   migrer ». La table et le marqueur sont toujours remis en état, même en cas
+   d'échec d'un test. */
+DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
+DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
+DB::getConnection()->exec('CREATE TABLE `homeboard_board` (
+	`id` int(11) NOT NULL AUTO_INCREMENT,
+	`name` varchar(191) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	PRIMARY KEY (`id`)
+) ENGINE=InnoDB');
+check('table héritée détectée', homeboard::legacyTableExists() === true);
+
+config::save('migratedEqLogic', 0, 'homeboard');
+check('table héritée + marqueur absent : migration en attente', homeboard::legacyMigrationPending() === true);
+
+try {
+	$threw = throwsSomething(function () {
+		homeboard::migrateBoardsToEqLogic();
+	});
+	check('erreur SQL : exception remontée', $threw);
+	check('erreur SQL : migration NON marquée terminée', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 0, 'marqueur=' . config::byKey('migratedEqLogic', 'homeboard', 0));
+	check('erreur SQL : table héritée intacte', homeboard::legacyTableExists() === true);
+} finally {
+	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
+	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
+	config::save('migratedEqLogic', 1, 'homeboard');
+}
+
+check('table de test supprimée', homeboard::legacyTableExists() === false);
+check('installation revenue à l état normal', count(homeboard::boards()) === 1, (string) count(homeboard::boards()));
+
 echo "\n$passed test(s) passé(s), $failed échec(s)\n";
 exit($failed === 0 ? 0 : 1);

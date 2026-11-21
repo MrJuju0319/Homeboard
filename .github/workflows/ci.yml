@@ -43,16 +43,7 @@ jobs:
           '
 
       - name: Aucun secret ni adresse personnelle dans le code
-        run: |
-          # Le plugin est public : aucune IP LAN, aucun domaine personnel,
-          # aucun identifiant ni clé ne doit se retrouver dans le code livré.
-          if grep -rnE '192\.168\.[0-9]+\.[0-9]+|bellier|jeedom\.link|BEGIN [A-Z ]*PRIVATE KEY|password[[:space:]]*=[[:space:]]*.\w' \
-              --include='*.php' --include='*.js' --include='*.css' --include='*.json' \
-              --exclude-dir=.git . ; then
-            echo "::error::Adresse, identifiant ou clé détecté dans le code"
-            exit 1
-          fi
-          echo "Aucun motif sensible"
+        run: php tools/scan-secrets.php
 
       - name: Tests de logique pure
         run: php tests/run.php --pure

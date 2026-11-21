@@ -113,34 +113,52 @@ class homeboard extends eqLogic {
 		self::ensureFirstBoard();
 	}
 
+	/* L'ancienne table des tableaux (avant 0.6) est-elle encore là ? */
+	public static function legacyTableExists() {
+		try {
+			$row = DB::Prepare('SHOW TABLES LIKE ?', array('homeboard_board'), DB::FETCH_TYPE_ROW);
+		} catch (Throwable $e) {
+			return false;
+		}
+		return is_array($row) && count($row) > 0;
+	}
+
+	/* Migration pas encore faite : l'administration le signale au lieu de
+	   laisser croire que tout est en place. */
+	public static function legacyMigrationPending() {
+		return self::legacyTableExists() && (int) config::byKey('migratedEqLogic', self::PLUGIN_ID, 0) !== 1;
+	}
+
 	/* Reprend chaque ligne de homeboard_board et crée l'équipement
-	   correspondant, puis rattache les tuiles. Idempotent : un tableau dont le
-	   slug existe déjà est ignoré, et la migration n'est marquée faite qu'à la
-	   fin — une interruption laisse une reprise possible sans doublon. Une
-	   copie JSON des lignes est écrite dans data/ avant toute écriture. */
-	private static function migrateBoardsToEqLogic() {
+	   correspondant, puis rattache les tuiles.
+
+	   La table d'origine n'est jamais supprimée : elle est renommée
+	   homeboard_board_old et sert de sauvegarde, y compris si l'écriture d'un
+	   fichier échouait (aucun fichier de sauvegarde n'est donc créé dans le
+	   répertoire du plugin, qui est servi par le serveur web).
+
+	   Idempotent : un slug déjà présent est réutilisé, et l'indicateur
+	   migratedEqLogic n'est posé qu'après une migration menée à son terme. Une
+	   erreur SQL inattendue interrompt la migration sans marquer quoi que ce
+	   soit, pour qu'une reprise reste possible. */
+	public static function migrateBoardsToEqLogic() {
 		if ((int) config::byKey('migratedEqLogic', self::PLUGIN_ID, 0) === 1) {
 			return;
 		}
-		try {
-			$rows = DB::Prepare('SELECT * FROM homeboard_board ORDER BY pos, id', array(), DB::FETCH_TYPE_ALL);
-		} catch (Exception $e) {
-			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
-			return; /* table absente : rien à migrer */
-		} catch (Throwable $e) {
-			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
-			return;
-		}
-		if (!is_array($rows) || !count($rows)) {
+		if (!self::legacyTableExists()) {
+			/* Rien à migrer : installation neuve, ou migration déjà faite. */
 			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 			return;
 		}
 
-		/* Copie de sécurité avant toute écriture. */
-		$dir = dirname(__FILE__) . '/../../data';
-		if (is_dir($dir) && is_writable($dir)) {
-			@file_put_contents($dir . '/boards_backup_' . date('Ymd_His') . '.json',
-				json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+		$rows = DB::Prepare('SELECT * FROM homeboard_board ORDER BY pos, id', array(), DB::FETCH_TYPE_ALL);
+		if (!is_array($rows)) {
+			return;
+		}
+		if (!count($rows)) {
+			DB::getConnection()->exec('RENAME TABLE `homeboard_board` TO `homeboard_board_old`');
+			config::save('migratedEqLogic', 1, self::PLUGIN_ID);
+			return;
 		}
 
 		$existing = array();
@@ -175,6 +193,7 @@ class homeboard extends eqLogic {
 				DB::Prepare('UPDATE homeboard_tile SET eq_id = ? WHERE eq_id = ?', array($newId, $oldId));
 			}
 		}
+		/* Renommage en dernier : la table reste la sauvegarde de la migration. */
 		DB::getConnection()->exec('RENAME TABLE `homeboard_board` TO `homeboard_board_old`');
 		config::save('migratedEqLogic', 1, self::PLUGIN_ID);
 		log::add(self::PLUGIN_ID, 'info', 'Migration : ' . count($map) . ' tableau(x) converti(s) en équipement(s) homeboard');

@@ -68,7 +68,7 @@ aucun build : PHP + JS natif.
 - En **HTTPS**, le service worker met le shell en cache (démarrage instantané,
   écran d'erreur propre hors ligne). En HTTP simple, l'ajout à l'écran d'accueil
   fonctionne mais sans cache.
-- **Accès par le DNS Jeedom** (`https://<box>.eu.jeedom.link/plugins/homeboard/pwa/index.php`) :
+- **Accès par le DNS Jeedom** (`https://<adresse-jeedom>/plugins/homeboard/pwa/index.php`) :
   c'est la voie recommandée, une seule origine partout. Elle exige une CSP
   dédiée, car la CSP globale de Jeedom (`/etc/apache2/conf-available/security.conf`)
   déclare `worker-src blob:` **sans `'self'`** : aucun service worker ne peut
@@ -164,13 +164,18 @@ Le plugin n'a plus de configuration propre pour les tableaux : la page
 `Configuration` du plugin ne garde que ce qui est commun (nom de la maison,
 horloge, rythme de rafraîchissement) et les pièces.
 
-> Migration depuis une version antérieure à 0.6 : les tableaux qui vivaient dans
-> la table `homeboard_board` sont convertis en équipements au premier chargement,
-> une copie JSON des lignes est écrite dans `plugins/homeboard/data/`, puis la
-> table d'origine est renommée `homeboard_board_old` (jamais supprimée d'office).
-> La migration est idempotente (un slug déjà présent est réutilisé, un indicateur
-> `migratedEqLogic` l'empêche de repasser). `homeboard_board_old` peut être
-> effacée une fois les tableaux vérifiés.
+> **Migration depuis une version antérieure à 0.6.** Les tableaux qui vivaient
+> dans la table `homeboard_board` sont convertis en équipements au premier
+> chargement. La table d'origine n'est **jamais supprimée** : elle est renommée
+> `homeboard_board_old` et **c'est elle qui sert de sauvegarde** — aucun fichier
+> de sauvegarde n'est écrit dans le répertoire du plugin, qui est servi par le
+> serveur web (les `.json` y sont refusés par Jeedom, mais ce n'est pas une
+> raison de compter dessus, et un déploiement écrase de toute façon ce dossier).
+> La migration est idempotente (un slug déjà présent est réutilisé) et
+> `migratedEqLogic` n'est posé qu'après une migration menée à son terme : une
+> erreur SQL inattendue laisse la table intacte, ne marque rien, et
+> l'administration affiche un bandeau « Migration incomplète » jusqu'à ce que ça
+> passe. `homeboard_board_old` peut être effacée une fois les tableaux vérifiés.
 
 La vue plein écran dans Jeedom
 (`index.php?v=d&p=homeboard&m=homeboard&board=<id|slug>`) demande seulement une
@@ -327,8 +332,12 @@ lignes. Détails dans `tests/README.md`.
 
 La CI GitHub lance `php -l` sur tous les fichiers, `node --check` sur le
 JavaScript, la validation de `plugin_info/info.json`, les tests purs, et un
-**garde anti-fuite** : le workflow échoue si une adresse LAN, un domaine
-personnel, un mot de passe ou une clé privée apparaît dans le code livré.
+**garde anti-fuite** (`php tools/scan-secrets.php`) : le workflow échoue si une
+adresse privée (10/8, 172.16/12, 192.168/16), un domaine personnel, un bloc de
+clé privée ou une valeur de type secret apparaît dans les fichiers livrés — PHP,
+JS, CSS, JSON, Markdown et YAML. Ce n'est pas un scanner de secrets complet
+(gitleaks, trufflehog) : c'est un filet ciblé, sans dépendance, qui doit rester
+strict plutôt que permissif.
 
 ## Notes techniques
 
