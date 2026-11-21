@@ -15,19 +15,24 @@ var ASSETS = [
 ];
 
 /* Une réponse redirigée (session Jeedom expirée → page de login), en erreur, ou
-   d'un autre type que celui attendu ne doit JAMAIS entrer dans le cache. */
+   d'un autre type que celui attendu ne doit JAMAIS entrer dans le cache.
+   La promesse est retournée : l'appelant la passe à waitUntil(), sinon le
+   service worker peut être arrêté avant que l'écriture soit terminée. */
 function putSafe(req, res, wantHtml) {
 	if (!res || !res.ok || res.redirected || res.type === 'opaqueredirect') {
-		return;
+		return Promise.resolve(false);
 	}
 	if (wantHtml) {
 		var ct = (res.headers.get('content-type') || '').toLowerCase();
 		if (ct.indexOf('text/html') === -1) {
-			return;
+			return Promise.resolve(false);
 		}
 	}
 	var copy = res.clone();
-	caches.open(CACHE).then(function (c) { c.put(req, copy); }).catch(function () {});
+	return caches.open(CACHE)
+		.then(function (c) { return c.put(req, copy); })
+		.then(function () { return true; })
+		.catch(function () { return false; });
 }
 
 function matchOwn(req) {
@@ -78,7 +83,7 @@ self.addEventListener('fetch', function (e) {
 			matchOwn(e.request).then(function (m) {
 				if (m) { return m; }
 				return fetch(e.request).then(function (r) {
-					putSafe(e.request, r);
+					e.waitUntil(putSafe(e.request, r));
 					return r;
 				});
 			})
@@ -91,7 +96,7 @@ self.addEventListener('fetch', function (e) {
 	if (/\.php$/.test(url.pathname)) {
 		e.respondWith(
 			fetch(e.request).then(function (r) {
-				putSafe(e.request, r, true);
+				e.waitUntil(putSafe(e.request, r, true));
 				return r;
 			}).catch(function () {
 				return matchOwn(e.request).then(function (m) {
@@ -107,7 +112,7 @@ self.addEventListener('fetch', function (e) {
 		matchOwn(e.request).then(function (m) {
 			if (m) { return m; }
 			return fetch(e.request).then(function (r) {
-				putSafe(e.request, r);
+				e.waitUntil(putSafe(e.request, r));
 				return r;
 			});
 		})

@@ -37,6 +37,7 @@ function hbRequestScheme() {
 
 try {
 	require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
+	require_once dirname(__FILE__) . '/../class/homeboard.pure.php';
 	include_file('core', 'authentification', 'php');
 
 	/* Lectures autorisées en GET ; toutes les actions d'écriture et exec()
@@ -75,15 +76,8 @@ try {
 		if ($hhost === '') {
 			throw new Exception('403 Hôte de la requête illisible');
 		}
-		$hport = isset($h['port']) ? (int) $h['port'] : ($scheme === 'https' ? 443 : 80);
-		if ($origin !== '') {
-			$o = parse_url($origin);
-			$oscheme = isset($o['scheme']) ? strtolower($o['scheme']) : '';
-			$ohost = isset($o['host']) ? strtolower($o['host']) : '';
-			$oport = isset($o['port']) ? (int) $o['port'] : ($oscheme === 'https' ? 443 : 80);
-			if ($ohost === '' || $ohost !== $hhost || $oscheme !== $scheme || $oport !== $hport) {
-				throw new Exception('403 Origin invalide');
-			}
+		if ($origin !== '' && !homeboardPure::originMatches($scheme, $hhost, isset($h['port']) ? $h['port'] : null, $origin)) {
+			throw new Exception('403 Origin invalide');
 		}
 	}
 

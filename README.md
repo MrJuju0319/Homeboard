@@ -125,8 +125,10 @@ ment. Deux cas sont distingués, sans aucun réglage :
   « il y a 7 h ». Uniquement sur les tuiles de mesure, et seulement au-delà de
   dix minutes : un état de lampe inchangé depuis deux heures n'a rien
   d'anormal, alors qu'une température figée depuis sept heures mérite un coup
-  d'œil. L'âge vient de la date réelle de la dernière valeur Jeedom, pas de
-  l'heure d'affichage.
+  d'œil. L'âge vient de la date du dernier **événement reçu** (celle que Jeedom
+  appelle `collectDate`), pas de la date du dernier changement de valeur : une
+  sonde qui renvoie 21 °C toutes les cinq minutes garde sinon une date vieille de
+  plusieurs heures et passerait pour morte.
 - **Mesure périmée** : pour les mesures d'ambiance (température, humidité,
   pression, CO₂…), censées remonter régulièrement, un retard de plus de deux
   heures passe la tuile en bordure pointillée ambre avec « périmé · il y a 8 h ».
@@ -177,11 +179,13 @@ propre bloc de réglages.
   ou `none`, et l'origine complète — schéma, hôte et port effectif — doit
   correspondre à la requête. Le schéma est lu dans `X-Forwarded-Proto` pour
   fonctionner derrière le DNS Jeedom. En cas de doute, la requête est refusée.
-- Une commande n'est exécutable que si elle **appartient à une tuile** :
+- Une commande n'est exécutable que si elle **appartient à une tuile visible** :
   `allowedActions()` reconstruit la liste des commandes d'action que les tuiles
   exposent (boutons, et capacités de la commande pilote : marche/arrêt,
   luminosité, couleur, consigne, modes, volets). `exec()` refuse tout le reste,
-  même avec un droit Jeedom `x` sur l'équipement concerné.
+  même avec un droit Jeedom `x` sur l'équipement concerné. Le périmètre est
+  celui de l'écran : une tuile d'une pièce masquée, ou d'un équipement sans
+  droit de lecture, n'ouvre aucune autorisation (`accessibleTiles()`).
 - Un scénario n'est lançable que s'il est **présent dans une tuile de scène**,
   actif, si l'utilisateur a le droit `x` dessus et si les scénarios sont
   autorisés dans Jeedom. `scenarioStates()` applique les mêmes filtres plus le
@@ -215,6 +219,18 @@ propre bloc de réglages.
   précachées (icônes) : le shell PHP n'est mis en cache qu'au chargement réel et
   seulement si la réponse est bien du HTML, pour qu'une page de connexion ou une
   erreur PHP ne puisse pas être servie à la place du tableau de bord.
+
+## Tests
+
+```bash
+php tests/run.php --pure                 # logique pure, sans Jeedom (CI)
+sudo -u www-data php plugins/homeboard/tests/run.php   # sur l'hôte Jeedom
+```
+
+Le second niveau vérifie les droits, les pièces masquées, les scénarios et les
+enregistrements en masse ; il crée puis supprime ses propres lignes. Détails
+dans `tests/README.md`. La CI GitHub lance `php -l` sur tous les fichiers,
+`node --check` sur le JavaScript et les tests purs.
 
 ## Notes techniques
 

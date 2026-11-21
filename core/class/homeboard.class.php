@@ -18,16 +18,16 @@
 
 /* * ***************************Includes********************************* */
 require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
+require_once dirname(__FILE__) . '/homeboard.pure.php';
 
 class homeboard extends eqLogic {
 
 	const PLUGIN_ID = 'homeboard';
 
-	/* Longueur maximale d'un libellé de tuile ou de pièce (colonne varchar). */
-	const LABEL_MAX = 191;
-
-	/* Types de tuile admis, dans l'ordre où l'interface les propose. */
-	const KINDS = array('auto', 'light', 'thermostat', 'sensor', 'switch', 'shutter', 'camera', 'button', 'scene');
+	/* Longueur maximale d'un libellé et liste des types : définies dans
+	   homeboard.pure.php pour être testables sans Jeedom. */
+	const LABEL_MAX = homeboardPure::LABEL_MAX;
+	const KINDS = homeboardPure::KINDS;
 
 	/* ============================================================
 	 *  Base de données
@@ -227,7 +227,14 @@ class homeboard extends eqLogic {
 		if ($name === '') {
 			throw new Exception('Le nom de la pièce est obligatoire');
 		}
-		$icon = isset($_data['icon']) && $_data['icon'] !== '' ? (string) $_data['icon'] : 'home';
+		$name = mb_substr($name, 0, self::LABEL_MAX);
+		$icon = isset($_data['icon']) ? trim((string) $_data['icon']) : '';
+		if ($icon === '') {
+			$icon = 'home';
+		} elseif (!in_array($icon, self::iconList(), true)) {
+			/* L'icône finit dans un attribut class : liste fermée. */
+			$icon = 'home';
+		}
 		$pos = isset($_data['pos']) ? (int) $_data['pos'] : 0;
 		$visible = isset($_data['isVisible']) ? (int) ((bool) $_data['isVisible']) : 1;
 		if ($id > 0) {
@@ -334,8 +341,7 @@ class homeboard extends eqLogic {
 	/* Types de tuile autorisés : la valeur est écrite dans un attribut class
 	   côté JavaScript, une chaîne libre serait une injection persistante. */
 	public static function validKind($_kind) {
-		$k = trim((string) $_kind);
-		return in_array($k, self::KINDS, true) ? $k : 'auto';
+		return homeboardPure::validKind($_kind);
 	}
 
 	private static function roomExists($_id) {
@@ -404,45 +410,11 @@ class homeboard extends eqLogic {
 	 * ============================================================ */
 
 	public static function kindFromGeneric($_gt, $_subType = '') {
-		$gt = strtoupper(trim((string) $_gt));
-		if ($gt === '') {
-			return $_subType === 'binary' ? 'switch' : 'sensor';
-		}
-		if (strpos($gt, 'LIGHT') === 0 || $gt === 'BRIGHTNESS') {
-			return 'light';
-		}
-		if (strpos($gt, 'THERMOSTAT') === 0) {
-			return 'thermostat';
-		}
-		if (strpos($gt, 'FLAP') === 0 || $gt === 'SHUTTER_STATE') {
-			return 'shutter';
-		}
-		if (strpos($gt, 'CAMERA') === 0) {
-			return 'camera';
-		}
-		if (strpos($gt, 'MODE') === 0) {
-			return 'switch';
-		}
-		if (in_array($gt, array('TEMPERATURE', 'HUMIDITY', 'POWER', 'CONSUMPTION', 'VOLTAGE',
-			'CURRENT', 'BATTERY', 'ENERGY_TOTAL', 'CO2', 'NOISE'), true)) {
-			return 'sensor';
-		}
-		if (strpos($gt, 'ENERGY') === 0 || in_array($gt, array('PRESENCE', 'OPENING', 'WATER_LEAK'), true)) {
-			return 'switch';
-		}
-		return $_subType === 'binary' ? 'switch' : 'sensor';
+		return homeboardPure::kindFromGeneric($_gt, $_subType);
 	}
 
 	public static function defaultIcon($_kind) {
-		$map = array(
-			'light' => 'light',
-			'thermostat' => 'thermometer',
-			'sensor' => 'sensor',
-			'shutter' => 'shutter',
-			'switch' => 'power',
-			'camera' => 'camera',
-		);
-		return isset($map[$_kind]) ? $map[$_kind] : 'sensor';
+		return homeboardPure::defaultIcon($_kind);
 	}
 
 	/* ============================================================
@@ -820,7 +792,55 @@ class homeboard extends eqLogic {
 		return $out;
 	}
 
-	/* Scénario présent dans au moins une tuile de scène : c'est la seule
+	/* Tuiles réellement accessibles à l'utilisateur connecté : celles d'une
+	   pièce visible, dont la commande ou le scénario existe et dont
+	   l'équipement autorise la lecture. C'est exactement ce que getLayout()
+	   affiche. S'en servir pour les autorisations évite qu'une tuile masquée
+	   (pièce cachée, ou équipement sans droit de lecture) reste exécutable
+	   par l'API alors qu'elle n'existe plus à l'écran. */
+	public static function accessibleTiles($_reload = false) {
+		static $cache = null;
+		if ($cache !== null && !$_reload) {
+			return $cache;
+		}
+		$rooms = array();
+		foreach (self::rooms(false) as $r) {
+			$rooms[(int) $r['id']] = true;
+		}
+		$out = array();
+		foreach (self::tiles() as $row) {
+			$roomId = (int) $row['room_id'];
+			/* Une tuile sans pièce n'apparaît nulle part : elle n'ouvre aucun droit. */
+			if ($roomId <= 0 || !isset($rooms[$roomId])) {
+				continue;
+			}
+			$kind = self::validKind(isset($row['kind']) ? $row['kind'] : 'auto');
+			if ($kind === 'scene') {
+				$sc = scenario::byId((int) $row['scenario_id']);
+				if (!is_object($sc) || (int) $sc->getIsActive() !== 1) {
+					continue;
+				}
+				if (method_exists($sc, 'hasRight') && !$sc->hasRight('r')) {
+					continue;
+				}
+				$out[] = $row;
+				continue;
+			}
+			$cmd = cmd::byId((int) $row['cmd_id']);
+			if (!is_object($cmd)) {
+				continue;
+			}
+			$eq = $cmd->getEqLogic();
+			if (is_object($eq) && method_exists($eq, 'hasRight') && !$eq->hasRight('r')) {
+				continue;
+			}
+			$out[] = $row;
+		}
+		$cache = $out;
+		return $out;
+	}
+
+	/* Scénario présent dans une tuile de scène accessible : c'est la seule
 	   permission qui autorise Homeboard à le lancer ou à lire son état. Un
 	   compte disposant du droit Jeedom « x » sur tous les scénarios ne doit pas
 	   pouvoir lancer n'importe lequel en changeant l'identifiant de la requête. */
@@ -829,9 +849,13 @@ class homeboard extends eqLogic {
 		if ($id <= 0) {
 			return false;
 		}
-		$row = DB::Prepare('SELECT id FROM homeboard_tile WHERE scenario_id = ? AND kind = ? LIMIT 1',
-			array($id, 'scene'), DB::FETCH_TYPE_ROW);
-		return is_array($row) && !empty($row);
+		foreach (self::accessibleTiles() as $row) {
+			if (self::validKind(isset($row['kind']) ? $row['kind'] : 'auto') === 'scene'
+				&& (int) $row['scenario_id'] === $id) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public static function runScenario($_id) {
@@ -1115,12 +1139,17 @@ class homeboard extends eqLogic {
 				continue;
 			}
 			$value = $cmd->execCmd();
-			/* Date de la dernière valeur réellement reçue : sans elle, une
-			   mesure figée depuis des heures est indiscernable d'une mesure
-			   fraîche, et l'écran affirme quelque chose qu'il ne sait pas. */
+			/* Fraîcheur : on prend la date du dernier **événement reçu**
+			   (collectDate), pas celle du dernier changement de valeur.
+			   Jeedom ne met valueDate à jour que si la valeur change : une
+			   sonde qui renvoie 21 °C toutes les cinq minutes gardait donc une
+			   valueDate vieille de plusieurs heures et passait pour morte. */
 			$stamp = 0;
-			if (method_exists($cmd, 'getValueDate')) {
-				$date = (string) $cmd->getValueDate();
+			if (method_exists($cmd, 'getCollectDate')) {
+				$date = (string) $cmd->getCollectDate();
+				if ($date === '' && method_exists($cmd, 'getValueDate')) {
+					$date = (string) $cmd->getValueDate();
+				}
 				if ($date !== '') {
 					$parsed = strtotime($date);
 					if ($parsed) {
@@ -1159,7 +1188,7 @@ class homeboard extends eqLogic {
 		}
 		$keys = array('on', 'off', 'toggle', 'briSet', 'colorSet', 'setSetpoint', 'up', 'down', 'stop', 'slider');
 		$out = array();
-		foreach (self::tiles() as $row) {
+		foreach (self::accessibleTiles() as $row) {
 			$kind = self::validKind(isset($row['kind']) ? $row['kind'] : 'auto');
 			if ($kind === 'scene') {
 				continue;
@@ -1204,21 +1233,8 @@ class homeboard extends eqLogic {
 		return $out;
 	}
 
-	/* Une mesure d'ambiance est censée remonter régulièrement ; une puissance
-	   ou un état ne changent que lorsque l'appareil change. Seules les
-	   premières peuvent donc être signalées comme périmées. */
 	private static function isPeriodic($_cmd) {
-		$gt = strtoupper(trim((string) $_cmd->getGeneric_type()));
-		if ($gt === '') {
-			$unit = trim((string) $_cmd->getUnite());
-			return in_array($unit, array('°C', '°F', '%', 'hPa', 'ppm', 'lx'), true);
-		}
-		foreach (array('TEMPERATURE', 'HUMIDITY', 'PRESSURE', 'CO2', 'AIR_QUALITY', 'NOISE', 'LUMINOSITY', 'UV') as $gt2) {
-			if (strpos($gt, $gt2) === 0 || strpos($gt, $gt2) !== false) {
-				return true;
-			}
-		}
-		return false;
+		return homeboardPure::isPeriodic($_cmd->getGeneric_type(), $_cmd->getUnite());
 	}
 
 	public static function exec($_cmdId, $_value) {
@@ -1250,16 +1266,14 @@ class homeboard extends eqLogic {
 				if (!is_numeric($_value)) {
 					throw new Exception('Valeur non numérique');
 				}
-				$v = (float) $_value;
-				$min = $cmd->getConfiguration('minValue', '');
-				$max = $cmd->getConfiguration('maxValue', '');
-				if (is_numeric($min) && $v < (float) $min) {
-					$v = (float) $min;
-				}
-				if (is_numeric($max) && $v > (float) $max) {
-					$v = (float) $max;
-				}
-				$_value = $v;
+				/* Bornes et pas respectés côté serveur : l'interface arrondit
+				   déjà, mais elle n'est pas la sécurité. */
+				$_value = homeboardPure::clampStep(
+					$_value,
+					$cmd->getConfiguration('minValue', ''),
+					$cmd->getConfiguration('maxValue', ''),
+					$cmd->getConfiguration('step', '')
+				);
 			} elseif ($sub === 'select') {
 				$list = (string) $cmd->getConfiguration('listValue', '');
 				if ($list !== '') {

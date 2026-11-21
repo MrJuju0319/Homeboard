@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [beta, stable]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+          coverage: none
+
+      - name: Syntaxe PHP
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            php -l "$f" >/dev/null || { echo "ERREUR $f"; fail=1; }
+          done < <(find . -name '*.php' -not -path './.git/*')
+          exit $fail
+
+      - name: Syntaxe JavaScript
+        run: |
+          node --check desktop/js/homeboard.js
+          node --check pwa/sw.js
+
+      - name: Tests de logique pure
+        run: php tests/run.php --pure
+
+  # Les contrôles qui touchent à la base et à l'API Jeedom (droits, pièces
+  # masquées, scénarios) demandent une instance Jeedom : ils s'exécutent sur
+  # l'hôte Jeedom avec `php plugins/homeboard/tests/run.php`.

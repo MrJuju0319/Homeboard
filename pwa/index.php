@@ -15,9 +15,11 @@ if (!isConnect()) {
 $homeName = config::byKey('homeName', 'homeboard', 'Maison');
 $cssVer = @filemtime(dirname(__FILE__) . '/../desktop/css/homeboard.css');
 $jsVer = @filemtime(dirname(__FILE__) . '/../desktop/js/homeboard.js');
-/* Le lien de configuration n'apparaît que pour un administrateur, comme sur la
-   page desktop ; l'AJAX d'administration le vérifie de toute façon. */
-$cfgUrl = isConnect('admin') ? '../../../index.php?v=d&p=plugin&id=homeboard' : '';
+/* Le shell ne contient aucune information liée à la session : il est donc
+   identique pour tous les profils et peut être mis en cache sans risque. Le
+   lien de configuration est toujours présent, mais la page de configuration
+   exige elle-même le profil administrateur. */
+$cfgUrl = '../../../index.php?v=d&p=plugin&id=homeboard';
 ?>
 <!DOCTYPE html>
 <html lang="fr">
