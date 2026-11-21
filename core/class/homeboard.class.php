@@ -105,6 +105,9 @@ class homeboard extends eqLogic {
 		if (config::byKey('wallDelay', self::PLUGIN_ID, null) === null) {
 			config::save('wallDelay', 2, self::PLUGIN_ID);
 		}
+		if (config::byKey('wallOled', self::PLUGIN_ID, null) === null) {
+			config::save('wallOled', 0, self::PLUGIN_ID);
+		}
 	}
 
 	public static function settings() {
@@ -114,6 +117,7 @@ class homeboard extends eqLogic {
 			'refresh' => max(2, min(30, (int) config::byKey('refresh', self::PLUGIN_ID, 3))),
 			'wallMode' => (int) config::byKey('wallMode', self::PLUGIN_ID, 0),
 			'wallDelay' => max(1, min(60, (int) config::byKey('wallDelay', self::PLUGIN_ID, 2))),
+			'wallOled' => (int) config::byKey('wallOled', self::PLUGIN_ID, 0),
 			'wallWidgets' => self::wallWidgets(),
 		);
 	}
@@ -163,6 +167,7 @@ class homeboard extends eqLogic {
 
 	public static function saveWall($_data) {
 		$mode = isset($_data['wallMode']) ? (int) ((bool) $_data['wallMode']) : 0;
+		$oled = isset($_data['wallOled']) ? (int) ((bool) $_data['wallOled']) : 0;
 		$delay = isset($_data['wallDelay']) ? (int) $_data['wallDelay'] : 2;
 		$delay = max(1, min(60, $delay));
 		$rows = isset($_data['wallWidgets']) ? json_decode((string) $_data['wallWidgets'], true) : array();
@@ -188,6 +193,7 @@ class homeboard extends eqLogic {
 			}
 		}
 		config::save('wallMode', $mode, self::PLUGIN_ID);
+		config::save('wallOled', $oled, self::PLUGIN_ID);
 		config::save('wallDelay', $delay, self::PLUGIN_ID);
 		config::save('wallWidgets', json_encode($clean), self::PLUGIN_ID);
 		return self::settings();

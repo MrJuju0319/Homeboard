@@ -130,6 +130,7 @@ try {
 		case 'saveWall':
 			ajax::success(homeboard::saveWall(array(
 				'wallMode' => init('wallMode', 0),
+				'wallOled' => init('wallOled', 0),
 				'wallDelay' => init('wallDelay', 2),
 				'wallWidgets' => init('wallWidgets', '[]'),
 			)));

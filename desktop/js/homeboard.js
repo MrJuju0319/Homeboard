@@ -325,8 +325,11 @@
 		if (!wall.el) { return; }
 		var inner = wall.el.querySelector('.hb-sleep__inner');
 		if (!inner) { return; }
-		var maxX = Math.min(56, Math.round(window.innerWidth * 0.06));
-		var maxY = Math.min(34, Math.round(window.innerHeight * 0.05));
+		/* Sur dalle OLED, un décalage de quelques pixels ne sort pas les
+		   caractères de leur zone : l'amplitude est nettement plus large. */
+		var oled = !!(S.home && Number(S.home.wallOled));
+		var maxX = Math.min(oled ? 140 : 56, Math.round(window.innerWidth * (oled ? 0.12 : 0.06)));
+		var maxY = Math.min(oled ? 80 : 34, Math.round(window.innerHeight * (oled ? 0.09 : 0.05)));
 		var x = Math.round((Math.random() * 2 - 1) * maxX);
 		var y = Math.round((Math.random() * 2 - 1) * maxY);
 		inner.style.setProperty('--hb-dx', x + 'px');
@@ -348,10 +351,17 @@
 		document.body.classList.add('hb-asleep');
 		wallPaint();
 		wallDrift();
+		/* Si une valeur de widget n'est pas encore connue (veille déclenchée
+		   juste après le chargement), on interroge tout de suite. */
+		var missing = false;
+		((S.home && S.home.wallWidgets) || []).forEach(function (w) {
+			if (!val(w.cmd)) { missing = true; }
+		});
+		if (missing) { poll(); }
 		clearInterval(wall.clockTimer);
 		wall.clockTimer = setInterval(wallPaint, 20000);
 		clearInterval(wall.driftTimer);
-		wall.driftTimer = setInterval(wallDrift, 60000);
+		wall.driftTimer = setInterval(wallDrift, (S.home && Number(S.home.wallOled)) ? 45000 : 60000);
 	}
 
 	function wallDelayMs() {
@@ -405,6 +415,7 @@
 	function applyWallMode() {
 		var on = !!(S.home && Number(S.home.wallMode));
 		document.body.classList.toggle('hb-wall', on);
+		document.body.classList.toggle('hb-wall-oled', on && !!(S.home && Number(S.home.wallOled)));
 		if (wall.bound) {
 			if (!on) {
 				document.body.classList.remove('hb-asleep');

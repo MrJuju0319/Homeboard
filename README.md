@@ -129,6 +129,12 @@ propre bloc de réglages.
   choisissent par recherche dans la section, le libellé se modifie sur place, la
   croix retire la valeur. Les valeurs suivent le rafraîchissement normal : elles
   sont à jour au réveil.
+- **Écran OLED** : case dédiée. Sur une dalle OLED un pixel noir ne consomme
+  rien, donc Homeboard abaisse la luminance (gris `#b7b7b7` au lieu de blanc),
+  porte le décalage à 12 % de la largeur / 9 % de la hauteur toutes les 45 s, et
+  fait varier lentement l'intensité du bloc (cycle de 150 s) pour qu'aucun pixel
+  ne reste à la même valeur. Sur LCD, laisser décoché : le rétroéclairage
+  consomme la même chose quelle que soit l'image.
 - Le navigateur est invité à ne pas laisser l'écran s'éteindre (`WakeLock`),
   quand il le permet : HTTPS obligatoire, sinon la demande est simplement
   ignorée.

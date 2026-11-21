@@ -11,6 +11,7 @@ $showClock = (int) config::byKey('showClock', 'homeboard', 1);
 $refresh = (int) config::byKey('refresh', 'homeboard', 3);
 $wallMode = (int) config::byKey('wallMode', 'homeboard', 0);
 $wallDelay = max(1, min(60, (int) config::byKey('wallDelay', 'homeboard', 2)));
+$wallOled = (int) config::byKey('wallOled', 'homeboard', 0);
 
 $pwaUrl = rtrim((string) network::getNetworkAccess('internal'), '/') . '/plugins/homeboard/pwa/index.php';
 $dashUrl = 'index.php?v=d&p=homeboard&m=homeboard';
@@ -88,6 +89,17 @@ function hb_icon_options($icons, $selected = '') {
 						<span class="input-group-addon">{{minutes}}</span>
 					</div>
 					<span class="help-block">{{Délai sans contact avant le voile (1 à 60 minutes)}}</span>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-sm-3 control-label">{{Écran OLED}}</label>
+				<div class="col-sm-6">
+					<input type="checkbox" id="hb-wall-oled" <?php echo $wallOled ? 'checked' : ''; ?>>
+					<span class="help-block">
+						{{Anti-marquage renforcé pour une dalle OLED : luminosité abaissée, décalage plus large
+						(jusqu'à 12 % de l'écran) toutes les 45 s, et variation lente de luminosité pour qu'aucun
+						pixel ne reste à la même intensité. À laisser décoché sur un écran LCD.}}
+					</span>
 				</div>
 			</div>
 			<div class="form-group">
@@ -636,6 +648,7 @@ function hb_icon_options($icons, $selected = '') {
 		saveWallBtn.addEventListener('click', function () {
 			call('saveWall', {
 				wallMode: document.getElementById('hb-wall-mode').checked ? 1 : 0,
+				wallOled: document.getElementById('hb-wall-oled').checked ? 1 : 0,
 				wallDelay: document.getElementById('hb-wall-delay').value,
 				wallWidgets: JSON.stringify(WALL.widgets)
 			}).then(function (s) {

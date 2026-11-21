@@ -1293,6 +1293,12 @@ body.hb-asleep .hb-sleep {
 	display: flex;
 }
 
+/* La page sous le voile ne doit pas pouvoir défiler (barre de défilement
+   visible sur un écran mural). */
+body.hb-asleep {
+	overflow: hidden;
+}
+
 /* Le bloc entier se décale (anti-marquage), pas seulement le texte. */
 .hb-sleep__inner {
 	display: flex;
@@ -1353,6 +1359,35 @@ body.hb-asleep .hb-sleep {
 	letter-spacing: 0.07em;
 	text-transform: uppercase;
 	color: var(--hb-dim);
+}
+
+/* Dalle OLED : un pixel éteint ne consomme rien, donc on baisse la luminance
+   (gris au lieu de blanc), on décale plus largement et on fait varier
+   lentement l'intensité pour qu'aucun pixel ne reste au même niveau. */
+@keyframes hb-oled-breath {
+	0%, 100% { opacity: 0.78; }
+	50% { opacity: 0.95; }
+}
+
+.hb-wall-oled .hb-sleep__inner {
+	transition: transform 3.5s ease;
+	animation: hb-oled-breath 150s ease-in-out infinite;
+}
+
+.hb-wall-oled .hb-sleep__clock {
+	color: #b7b7b7;
+}
+
+.hb-wall-oled .hb-sleep__date {
+	color: #666666;
+}
+
+.hb-wall-oled .hb-sleep__wv {
+	color: #b7b7b7;
+}
+
+.hb-wall-oled .hb-sleep__wl {
+	color: #666666;
 }
 
 .hb-empty--error {
