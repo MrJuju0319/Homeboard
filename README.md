@@ -320,10 +320,15 @@ php tests/run.php --pure                 # logique pure, sans Jeedom (CI)
 sudo -u www-data php plugins/homeboard/tests/run.php   # sur l'hôte Jeedom
 ```
 
-Le second niveau vérifie les droits, les pièces masquées, les scénarios et les
-enregistrements en masse ; il crée puis supprime ses propres lignes. Détails
-dans `tests/README.md`. La CI GitHub lance `php -l` sur tous les fichiers,
-`node --check` sur le JavaScript et les tests purs.
+Le second niveau vérifie les droits des tableaux (profil restreint créé puis
+supprimé pour la durée du test), les tableaux désactivés, les pièces masquées,
+les scénarios et les enregistrements en masse ; il crée puis supprime ses propres
+lignes. Détails dans `tests/README.md`.
+
+La CI GitHub lance `php -l` sur tous les fichiers, `node --check` sur le
+JavaScript, la validation de `plugin_info/info.json`, les tests purs, et un
+**garde anti-fuite** : le workflow échoue si une adresse LAN, un domaine
+personnel, un mot de passe ou une clé privée apparaît dans le code livré.
 
 ## Notes techniques
 
@@ -350,8 +355,16 @@ dans `tests/README.md`. La CI GitHub lance `php -l` sur tous les fichiers,
 - L'accusé d'un scénario s'arrête à « Terminé » : Homeboard suit l'état du
   scénario (`starting` / `in progress` / `stop`), pas le résultat interne de
   chaque action qu'il contient.
-- La désinstallation du plugin supprime les tables `homeboard_room` et
-  `homeboard_tile` (les tuiles sont donc à refaire après réinstallation).
+- Les droits par tableau ne distinguent que les profils `restricted` : Jeedom
+  accorde tous les droits aux profils `admin` et `user`, le contrôle
+  `hasRight('r')` n'a donc d'effet que sur un compte restreint.
+- À la désinstallation, Jeedom supprime les équipements du plugin un par un en
+  encadrant chaque suppression d'un `try/catch` : le dernier tableau, protégé par
+  `preRemove()`, survit à la désinstallation et réapparaît si le plugin est
+  réinstallé. C'est volontaire — un tableau perdu ne se reconstitue pas — mais il
+  faut le supprimer à la main si on veut repartir de zéro.
+- La désinstallation supprime les tables `homeboard_room` et `homeboard_tile`
+  (les tuiles sont donc à refaire après réinstallation).
 
 ## Licence
 

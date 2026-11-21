@@ -241,8 +241,25 @@ class homeboard extends eqLogic {
 	   un tableau désactivé pour le corriger. Les appelants qui n'affichent que
 	   le service (PWA) passent $_onlyEnable = true. */
 	public static function boards($_onlyEnable = false) {
+		if (homeboardState::$boardsCache === null) {
+			homeboardState::$boardsCache = self::loadBoards();
+		}
+		if (!$_onlyEnable) {
+			return homeboardState::$boardsCache;
+		}
 		$out = array();
-		foreach (eqLogic::byType(self::PLUGIN_ID, (bool) $_onlyEnable) as $eq) {
+		foreach (homeboardState::$boardsCache as $b) {
+			if ((int) $b['isEnable'] === 1) {
+				$out[] = $b;
+			}
+		}
+		return $out;
+	}
+
+	/* Lecture réelle : une seule requête par requête HTTP. */
+	private static function loadBoards() {
+		$out = array();
+		foreach (eqLogic::byType(self::PLUGIN_ID) as $eq) {
 			$out[] = self::boardArray($eq);
 		}
 		usort($out, function ($a, $b) { return $a['id'] - $b['id']; });
@@ -395,6 +412,10 @@ class homeboard extends eqLogic {
 
 	/* eqLogic::setConfiguration() prend une clé et une valeur : on boucle pour
 	   poser un tableau entier. */
+	private static function forgetBoards() {
+		homeboardState::$boardsCache = null;
+	}
+
 	private static function setConfigurationArray($_eq, $_conf) {
 		foreach ($_conf as $k => $v) {
 			$_eq->setConfiguration($k, $v);
@@ -461,9 +482,11 @@ class homeboard extends eqLogic {
 			$conf['wallWidgets'] = '[]';
 		}
 		self::setConfigurationArray($this, $conf);
+		self::forgetBoards();
 	}
 
 	public function postSave() {
+		self::forgetBoards();
 		/* Un tableau désactivé dans Jeedom n'est pas servi : voir board(). */
 	}
 
@@ -471,7 +494,15 @@ class homeboard extends eqLogic {
 	   bouton standard de Jeedom : le dernier tableau ne peut pas partir.
 	   La désinstallation du plugin passe aussi par là, mais Jeedom encadre
 	   chaque suppression d'un try/catch : l'exception n'y bloque rien. */
+	/* La liste est relue dans preRemove pour compter les autres tableaux :
+	   on la vide de nouveau une fois la suppression faite, sinon la requête en
+	   cours garderait le tableau supprimé dans son cache. */
+	public function postRemove() {
+		self::forgetBoards();
+	}
+
 	public function preRemove() {
+		self::forgetBoards();
 		$others = 0;
 		foreach (self::boards() as $b) {
 			if ((int) $b['id'] !== (int) $this->getId()) {
@@ -2032,6 +2063,9 @@ class homeboardCmd extends cmd {
    propriété statique déclarée dans homeboard serait lue comme un champ SQL. */
 class homeboardState {
 	public static $boardRef = null;
+	/* Liste des tableaux pour la requête en cours (invalidée à chaque
+	   enregistrement ou suppression). */
+	public static $boardsCache = null;
 	public static $tilesCache = array();
 	public static $actionsCache = array();
 }

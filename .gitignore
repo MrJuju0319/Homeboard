@@ -8,3 +8,7 @@ screenshots/
 *.tgz
 *.zip
 .DS_Store
+
+# Sauvegardes de migration (données de l'installation, jamais versionnées)
+data/*.json
+data/*.sql

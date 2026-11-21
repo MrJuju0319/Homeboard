@@ -16,9 +16,9 @@
  * along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* Jeedom n'expose pas d'aide pour le schéma réel de la requête (proxy
-   jeedom.link, reverse proxy local). On lit donc l'en-tête du proxy en premier,
-   puis la connexion elle-même. */
+/* Jeedom n'expose pas d'aide pour le schéma réel de la requête (DNS du
+   constructeur, reverse proxy local). On lit donc l'en-tête du proxy en
+   premier, puis la connexion elle-même. */
 function hbRequestScheme() {
 	if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
 		$proto = strtolower(trim(current(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_PROTO']))));
