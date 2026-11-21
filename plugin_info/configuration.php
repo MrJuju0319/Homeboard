@@ -173,9 +173,6 @@ $dashUrl = 'index.php?v=d&p=homeboard&m=homeboard';
 				'</tr>';
 		});
 		tb.innerHTML = html || '<tr><td colspan="6" class="text-center text-muted">{{Aucune pièce}}</td></tr>';
-
-		var sel = document.getElementById('hb-tile-room');
-		sel.innerHTML = roomOptions(sel.value);
 	}
 
 	function load() {

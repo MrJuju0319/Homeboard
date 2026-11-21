@@ -7,10 +7,12 @@
 require_once dirname(__FILE__) . '/../../../core/php/core.inc.php';
 include_file('core', 'authentification', 'php');
 
-if (!isConnect()) {
-	header('Location: ../../../index.php?v=d');
-	exit;
-}
+/* Pas de session Jeedom : on sert quand même la coquille (neutre, sans
+   donnée) et la page affiche un message explicite avec un lien vers Jeedom.
+   Un renvoi silencieux vers le dashboard laissait croire que l'adresse du
+   tableau était cassée, alors qu'il manquait seulement la session sur ce
+   domaine (l'IP locale et le DNS Jeedom sont deux origines distinctes). */
+$hbAuth = isConnect() ? '1' : '0';
 
 $homeName = config::byKey('homeName', 'homeboard', 'Maison');
 $cssVer = @filemtime(dirname(__FILE__) . '/../desktop/css/homeboard.css');
@@ -52,6 +54,8 @@ if (isset($_GET['b']) && $_GET['b'] !== '') {
 	<div id="hb-root"
 	     data-api="../core/ajax/homeboard.ajax.php"
 	     data-board="<?php echo htmlspecialchars($boardSlug); ?>"
+	     data-auth="<?php echo $hbAuth; ?>"
+	     data-login="../../../index.php?v=d"
 	     data-config="<?php echo htmlspecialchars($cfgUrl); ?>"></div>
 	<script src="../../../core/php/getResource.php?file=plugins/homeboard/desktop/js/homeboard.js&v=<?php echo $jsVer; ?>"></script>
 </body>

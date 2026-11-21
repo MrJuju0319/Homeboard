@@ -2055,3 +2055,25 @@ body.hb-standalone #hb-root {
 	color: var(--hb-muted, #8a8a94);
 	margin-top: 2px;
 }
+
+/* ---------- Boutons du message « session absente » ---------- */
+
+.hb-btn {
+	display: inline-block;
+	margin-top: 10px;
+	padding: 10px 16px;
+	border: 1px solid rgba(127, 127, 127, 0.45);
+	border-radius: 10px;
+	background: rgba(127, 127, 127, 0.12);
+	color: inherit;
+	font: inherit;
+	font-size: 15px;
+	cursor: pointer;
+	text-decoration: none;
+}
+
+.hb-btn:hover {
+	background: rgba(127, 127, 127, 0.2);
+	text-decoration: none;
+	color: inherit;
+}

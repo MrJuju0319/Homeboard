@@ -1670,6 +1670,21 @@
 
 	function boot() {
 		if (!bind()) { return; }
+
+		/* Coquille servie sans session Jeedom : on explique au lieu de renvoyer
+		   vers le dashboard. Le tableau s'affichera dès qu'une session existe
+		   sur ce domaine (l'IP locale et le DNS Jeedom sont deux origines). */
+		if (root.getAttribute('data-auth') === '0') {
+			var loginUrl = root.getAttribute('data-login') || '/';
+			root.innerHTML = '<div class="hb-empty hb-empty--error">' +
+				'<p><strong>Session Jeedom absente sur cette adresse.</strong></p>' +
+				'<p>Le tableau de bord lit ses données avec ta session Jeedom. Ouvre Jeedom sur ce ' +
+				'même domaine, connecte-toi, puis reviens ici.</p>' +
+				'<p><a class="hb-btn" href="' + esc(loginUrl) + '">Ouvrir Jeedom</a> ' +
+				'<button type="button" class="hb-btn" onclick="location.reload()">Réessayer</button></p>' +
+				'</div>';
+			return;
+		}
 		/* Service worker : uniquement sur la page PWA (pas sur le dashboard
 		   Jeedom, où il n'a rien à faire). */
 		if ('serviceWorker' in navigator && /\/plugins\/homeboard\/pwa\//.test(location.pathname)) {

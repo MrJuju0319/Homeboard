@@ -52,7 +52,19 @@ if ($wallWidgetsRaw === '') {
 	$wallWidgetsRaw = '[]';
 }
 
-$pwaBase = rtrim((string) network::getNetworkAccess('internal'), '/') . '/plugins/homeboard/pwa/index.php';
+/* Adresse proposée : celle du domaine depuis lequel la page est ouverte, pour
+   que la session Jeedom soit la même une fois collée sur l'écran. Repli sur
+   l'accès interne configuré si l'hôte n'est pas connu. */
+$hbScheme = 'http';
+if ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !== 'off')
+	|| strtolower((string) (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) ? $_SERVER['HTTP_X_FORWARDED_PROTO'] : '')) === 'https') {
+	$hbScheme = 'https';
+}
+$hbHost = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+$hbBase = $hbHost !== ''
+	? $hbScheme . '://' . $hbHost
+	: rtrim((string) network::getNetworkAccess('internal'), '/');
+$pwaBase = $hbBase . '/plugins/homeboard/pwa/index.php';
 $pwaUrl = $pwaBase . ($hbSlug !== '' ? '?b=' . urlencode($hbSlug) : '');
 $hbRooms = homeboard::rooms(true);
 $hbIcons = homeboard::iconList();

@@ -127,6 +127,11 @@ Chaque tableau porte :
   l'adresse qu'on installe sur l'écran concerné. `?b=<id>` fonctionne aussi.
   Sans paramètre, l'adresse sert le premier tableau créé ; un slug inconnu y
   retombe également, pour qu'un lien périmé affiche encore quelque chose.
+  L'adresse proposée reprend le domaine depuis lequel la configuration est
+  ouverte : collée telle quelle, elle garde la session Jeedom. **L'IP locale et
+  le DNS Jeedom sont deux origines distinctes** — une session ouverte sur l'une
+  ne vaut pas pour l'autre. Sans session, la page l'explique au lieu de renvoyer
+  au dashboard.
 - **Mode mur** — activation, délai de veille, anti-marquage OLED, widgets : ce
   réglage appartient au tableau, donc le mur du salon peut s'endormir sans que
   le téléphone suive.
