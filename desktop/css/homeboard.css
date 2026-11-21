@@ -31,6 +31,23 @@
 	min-height: 100%;
 	-webkit-font-smoothing: antialiased;
 	-webkit-tap-highlight-color: transparent;
+	/* Tableau de bord tactile : un appui maintenu ne doit jamais sélectionner
+	   un libellé ni ouvrir le menu « copier / rechercher » de iOS. La variante
+	   préfixée est indispensable (Safari ignore la propriété non préfixée), et
+	   touch-callout coupe la loupe et le menu contextuel. */
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+
+/* Les seuls endroits où la sélection reste possible : les champs de saisie. */
+#hb-root input,
+#hb-root textarea {
+	-webkit-user-select: text;
+	-moz-user-select: text;
+	user-select: text;
+	-webkit-touch-callout: default;
 }
 
 #hb-root *,
@@ -252,6 +269,8 @@ body.hb-standalone {
 	color: var(--hb-txt);
 	cursor: pointer;
 	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
 	touch-action: manipulation;
 	transition: background 0.18s ease, border-color 0.18s ease, transform 0.1s ease;
 }
