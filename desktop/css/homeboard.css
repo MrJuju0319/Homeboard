@@ -181,6 +181,18 @@ body.hb-standalone {
 	flex: 0 0 auto;
 }
 
+.hb-head__tools {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.hb-head__tools .hb-exitbtn {
+	margin-top: 0;
+}
+
 @media (max-width: 619px) {
 	/* Sur téléphone on masque seulement l'horloge (déjà dans la barre de
 	   statut) : les boutons Installer / Configurer / Quitter doivent rester
@@ -2076,4 +2088,386 @@ body.hb-standalone #hb-root {
 	background: rgba(127, 127, 127, 0.2);
 	text-decoration: none;
 	color: inherit;
+}
+
+/* =========================================================================
+   0.7 — Recherche, widgets, densité d'affichage, tablette
+   ========================================================================= */
+
+/* ---------- Bouton rond d'en-tête (élément <button>) ---------- */
+
+button.hb-icobtn {
+	padding: 0;
+	font: inherit;
+	background: var(--hb-surface);
+	cursor: pointer;
+	-webkit-appearance: none;
+	appearance: none;
+	transition: color 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+button.hb-icobtn:active {
+	transform: scale(0.94);
+}
+
+/* ---------- Widgets : bandeau du tableau de bord ---------- */
+
+.hb-widgets {
+	display: flex;
+	gap: 10px;
+	padding: 0 var(--hb-pad) 14px;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+}
+
+.hb-widgets::-webkit-scrollbar {
+	display: none;
+}
+
+.hb-widget {
+	flex: 1 1 0;
+	min-width: 104px;
+	max-width: 240px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 10px 13px;
+	border-radius: 14px;
+	border: 1px solid var(--hb-line);
+	background: var(--hb-surface);
+}
+
+.hb-widget__v {
+	display: flex;
+	align-items: baseline;
+	gap: 3px;
+	font-size: 20px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	font-variant-numeric: tabular-nums;
+}
+
+.hb-widget__u {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--hb-mute);
+}
+
+.hb-widget__l {
+	font-size: 11px;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--hb-mute);
+}
+
+/* ---------- Recherche globale ---------- */
+
+.hb-search {
+	position: fixed;
+	inset: 0;
+	z-index: 9100;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: max(56px, calc(env(safe-area-inset-top) + 46px)) 12px 12px;
+}
+
+.hb-search__backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.66);
+}
+
+.hb-search__panel {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: min(680px, 100%);
+	max-height: min(72vh, 560px);
+	background: #131315;
+	border: 1px solid var(--hb-line);
+	border-radius: 18px;
+	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+	overflow: hidden;
+}
+
+.hb-search__field {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--hb-line);
+}
+
+.hb-search__field .hb-i {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	color: var(--hb-mute);
+}
+
+.hb-search__field input {
+	flex: 1;
+	min-width: 0;
+	padding: 4px 0;
+	border: 0;
+	background: none;
+	color: var(--hb-txt);
+	/* 16 px : en dessous, iOS zoome sur le champ au focus. */
+	font-size: 16px;
+	outline: none;
+}
+
+.hb-search__field input::-webkit-search-cancel-button {
+	display: none;
+}
+
+.hb-search__close {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	border: 1px solid var(--hb-line);
+	background: var(--hb-surface);
+	color: var(--hb-dim);
+	cursor: pointer;
+}
+
+.hb-search__results {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.hb-res {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	min-height: 48px;
+	padding: 9px 12px;
+	border: 0;
+	border-radius: 12px;
+	background: none;
+	color: var(--hb-txt);
+	text-align: left;
+	cursor: pointer;
+}
+
+.hb-res:hover,
+.hb-res:focus-visible {
+	background: var(--hb-surface-hi);
+}
+
+.hb-res .hb-i {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	color: var(--hb-dim);
+}
+
+.hb-res__txt {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.hb-res__l {
+	font-size: 15px;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.hb-res__s {
+	font-size: 12px;
+	color: var(--hb-mute);
+}
+
+.hb-search__empty {
+	padding: 20px 14px;
+	font-size: 14px;
+	color: var(--hb-mute);
+}
+
+/* ---------- Réglages d'affichage ---------- */
+
+.hb-pref {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 2px;
+	border-top: 1px solid var(--hb-line);
+}
+
+.hb-pref__t {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-size: 15px;
+}
+
+.hb-pref__h {
+	font-size: 12px;
+	color: var(--hb-mute);
+}
+
+.hb-switch {
+	position: relative;
+	flex: none;
+	width: 50px;
+	height: 30px;
+	padding: 0;
+	border-radius: 999px;
+	border: 1px solid var(--hb-line-hi);
+	background: var(--hb-surface-hi);
+	cursor: pointer;
+	transition: background 0.16s, border-color 0.16s;
+}
+
+.hb-switch span {
+	position: absolute;
+	top: 4px;
+	left: 4px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: #a1a1aa;
+	transition: transform 0.16s, background 0.16s;
+}
+
+.hb-switch[aria-checked="true"] {
+	background: var(--hb-accent-soft);
+	border-color: var(--hb-accent-line);
+}
+
+.hb-switch[aria-checked="true"] span {
+	transform: translateX(20px);
+	background: var(--hb-accent);
+}
+
+.hb-seg {
+	display: inline-flex;
+	flex: none;
+	border: 1px solid var(--hb-line);
+	border-radius: 10px;
+	overflow: hidden;
+}
+
+.hb-seg__b {
+	min-height: 40px;
+	padding: 8px 12px;
+	border: 0;
+	background: var(--hb-surface);
+	color: var(--hb-dim);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.hb-seg__b + .hb-seg__b {
+	border-left: 1px solid var(--hb-line);
+}
+
+.hb-seg__b.is-on {
+	background: var(--hb-accent-soft);
+	color: var(--hb-txt);
+}
+
+/* ---------- Densité (préférence par appareil) ---------- */
+
+body.hb-d-compact #hb-root {
+	--hb-gap: 8px;
+	--hb-pad: 12px;
+}
+
+body.hb-d-compact .hb-tile {
+	padding: 10px;
+	border-radius: 15px;
+	aspect-ratio: 1 / 0.9;
+}
+
+body.hb-d-compact .hb-tile__name {
+	font-size: 13px;
+}
+
+body.hb-d-large #hb-root {
+	--hb-gap: 14px;
+	--hb-pad: 18px;
+}
+
+body.hb-d-large .hb-tile {
+	padding: 16px;
+	aspect-ratio: 1 / 1.08;
+}
+
+body.hb-d-large .hb-tile__name {
+	font-size: 16px;
+}
+
+body.hb-no-sections .hb-section__title {
+	display: none;
+}
+
+body.hb-no-widgets .hb-widgets {
+	display: none;
+}
+
+/* Tuile trouvée par la recherche : elle se signale sans rester marquée. */
+.hb-tile.is-found {
+	border-color: var(--hb-accent);
+	box-shadow: 0 0 0 2px var(--hb-accent-line);
+	animation: hb-found 0.5s ease;
+}
+
+@keyframes hb-found {
+	from { transform: scale(0.985); }
+	to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.hb-tile.is-found {
+		animation: none;
+	}
+}
+
+/* ---------- Tablette et écran large ---------- */
+
+/* Une tablette de 1024 px en paysage tombait entre deux paliers : six colonnes
+   de ~160 px lisent mieux que quatre de ~240 px. */
+@media (min-width: 1000px) {
+	.hb-grid {
+		grid-template-columns: repeat(6, minmax(0, 1fr));
+	}
+}
+
+@media (min-width: 768px) and (max-width: 1099.98px) {
+	.hb-tile {
+		border-radius: 20px;
+	}
+
+	.hb-nav__item {
+		height: 48px;
+		font-size: 15px;
+	}
+
+	.hb-widget__v {
+		font-size: 22px;
+	}
+}
+
+/* Sur une tablette, le rebond de défilement donne l'impression que la page
+   bouge toute seule quand on tient l'écran à deux mains. */
+.hb-app,
+#hb-root {
+	overscroll-behavior-y: contain;
 }

@@ -3,7 +3,7 @@
    donnée d'équipement n'est mise en cache.
    CacheStorage étant partagé par toute l'origine, on ne touche qu'aux caches
    nommés « homeboard-* » : jamais ceux de Jeedom ni d'une autre application. */
-var CACHE = 'homeboard-shell-v4';
+var CACHE = 'homeboard-shell-v5';
 var PREFIX = 'homeboard-';
 
 /* Seules des ressources statiques sont précachées. Le shell PHP n'est jamais

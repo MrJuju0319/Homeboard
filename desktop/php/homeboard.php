@@ -294,8 +294,16 @@ $hbIcons = homeboard::iconList();
 								</span>
 							</div>
 						</div>
+					</fieldset>
+
+					<fieldset>
+						<legend><i class="fas fa-signal"></i> {{Widgets}}</legend>
+						<p class="help-block">
+							{{Valeurs affichées en haut du tableau de bord — et sous l'heure pendant la veille du mode mur :
+							un seul réglage pour les deux.}}
+						</p>
 						<div class="form-group">
-							<label class="col-sm-3 control-label">{{Widgets}}</label>
+							<label class="col-sm-3 control-label">{{Valeurs}}</label>
 							<div class="col-sm-6">
 								<input type="text" class="form-control" id="hb-wall-search" placeholder="{{Ajouter une valeur : consommation, température, météo…}}" autocomplete="off">
 								<div id="hb-wall-results" class="hb-search-results" style="display:none;max-height:220px;overflow:auto"></div>
@@ -304,8 +312,8 @@ $hbIcons = homeboard::iconList();
 								       data-l1key="configuration" data-l2key="wallWidgets"
 								       value="<?php echo htmlspecialchars($wallWidgetsRaw); ?>">
 								<span class="help-block">
-									{{Quatre valeurs au maximum, affichées sous l'heure pendant la veille. Le libellé se
-									modifie sur place ; la croix retire la valeur. Enregistre avec « Sauvegarder ».}}
+									{{Quatre valeurs au maximum. Le libellé se modifie sur place ; la croix retire la valeur.
+									Enregistre avec « Sauvegarder ».}}
 								</span>
 							</div>
 						</div>

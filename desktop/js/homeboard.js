@@ -40,6 +40,8 @@
 		car: '<path d="M5 17h14"/><path d="M6.5 17V13l1.8-4.2A2 2 0 0 1 10.1 7.5h3.8a2 2 0 0 1 1.8 1.3L17.5 13v4"/><path d="M4 13h16"/><circle cx="8" cy="17.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>',
 		chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
 		play: '<path d="M7 4.5l12 7.5-12 7.5z"/>',
+		search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>',
+		sliders: '<path d="M4 7h9"/><path d="M17 7h3"/><circle cx="15" cy="7" r="2"/><path d="M4 17h3"/><path d="M11 17h9"/><circle cx="9" cy="17" r="2"/>',
 		gear: '<path d="M4 7h9M17 7h3M4 17h4M12 17h8"/><circle cx="15" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
 		shrink: '<path d="M9 3v6H3"/><path d="M3 9l6-6"/><path d="M15 21v-6h6"/><path d="M21 15l-6 6"/>',
 		close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
@@ -74,6 +76,13 @@
 		sparks: {},
 		favById: {}
 	};
+
+	/* Préférences d'affichage : conservées dans le navigateur, donc propres à
+	   chaque appareil. La tablette du salon et le téléphone peuvent avoir des
+	   réglages différents sans rien stocker côté Jeedom. */
+	var PREF_KEY = 'hb:prefs';
+	var PREFS = { density: 'normal', widgets: 1, sections: 1, screen: 0 };
+	var wake = { sentinel: null };
 
 	/* ------------------------------------------------------------------ */
 	/*  Utilitaires                                                        */
@@ -251,6 +260,49 @@
 
 	var navEl, navList, headEl, sectionsEl;
 
+	function loadPrefs() {
+		try {
+			var raw = window.localStorage.getItem(PREF_KEY);
+			var p = raw ? JSON.parse(raw) : null;
+			if (p && typeof p === 'object') {
+				if (p.density === 'compact' || p.density === 'normal' || p.density === 'large') {
+					PREFS.density = p.density;
+				}
+				['widgets', 'sections', 'screen'].forEach(function (k) {
+					if (p[k] !== undefined) { PREFS[k] = Number(p[k]) ? 1 : 0; }
+				});
+			}
+		} catch (e) {
+			/* Stockage refusé (navigation privée) : on garde les valeurs par défaut. */
+		}
+	}
+
+	function savePrefs() {
+		try { window.localStorage.setItem(PREF_KEY, JSON.stringify(PREFS)); } catch (e) {}
+		applyPrefs();
+	}
+
+	function applyPrefs() {
+		var b = document.body;
+		b.classList.toggle('hb-d-compact', PREFS.density === 'compact');
+		b.classList.toggle('hb-d-large', PREFS.density === 'large');
+		b.classList.toggle('hb-no-widgets', !Number(PREFS.widgets));
+		b.classList.toggle('hb-no-sections', !Number(PREFS.sections));
+		keepAwake();
+	}
+
+	/* Écran maintenu allumé : le navigateur n'accorde le verrou qu'après un geste
+	   de l'utilisateur, d'où l'appel depuis le premier appui. Sur une tablette
+	   murale, c'est la différence entre un tableau vivant et un écran noir. */
+	function keepAwake() {
+		if (!Number(PREFS.screen) || !('wakeLock' in navigator)) { return; }
+		if (wake.sentinel || document.hidden) { return; }
+		navigator.wakeLock.request('screen').then(function (s) {
+			wake.sentinel = s;
+			s.addEventListener('release', function () { wake.sentinel = null; });
+		}).catch(function () {});
+	}
+
 	function buildShell() {
 		root.innerHTML = '<div class="hb-app">' +
 			'<aside class="hb-nav" id="hb-nav" role="tablist"></aside>' +
@@ -331,6 +383,34 @@
 	/* Widgets du voile : conso, température, météo… n'importe quelle commande
 	   d'information choisie dans la configuration. Les valeurs viennent du
 	   cache de polling (elles sont ajoutées aux identifiants interrogés). */
+	/* Un seul rendu de widget pour les deux usages : le bandeau du tableau de
+	   bord et le voile du mode mur. La valeur vient du même poll, donc un widget
+	   ajouté une fois s'affiche partout. */
+	function widgetCardHtml(w) {
+		var v = val(w.cmd);
+		var unit = (v && v.unit) ? v.unit : (w.unit || '');
+		return '<div class="hb-widget"><span class="hb-widget__v">' + esc(v ? v.display : '—') +
+			(unit ? '<span class="hb-widget__u">' + esc(unit) + '</span>' : '') + '</span>' +
+			'<span class="hb-widget__l">' + esc(w.label) + '</span></div>';
+	}
+
+	function widgetsStrip() {
+		var list = (S.home && S.home.wallWidgets) || [];
+		if (!list.length || !Number(PREFS.widgets)) { return ''; }
+		var html = '';
+		list.forEach(function (w) { html += widgetCardHtml(w); });
+		return '<div class="hb-widgets" id="hb-widgets">' + html + '</div>';
+	}
+
+	function refreshWidgets() {
+		var el = document.getElementById('hb-widgets');
+		if (!el) { return; }
+		var list = (S.home && S.home.wallWidgets) || [];
+		var html = '';
+		list.forEach(function (w) { html += widgetCardHtml(w); });
+		el.innerHTML = html;
+	}
+
 	function wallWidgetsInner() {
 		var list = (S.home && S.home.wallWidgets) || [];
 		var html = '';
@@ -506,9 +586,22 @@
 			cfg = '<a class="hb-exitbtn" href="' + esc(CFG_URL) + '" title="Configurer le tableau de bord" ' +
 				'aria-label="Configurer le tableau de bord">' + svg('gear') + '</a>';
 		}
+		/* Outils de consultation, disponibles partout, y compris en plein écran
+		   où la barre Jeedom est masquée. */
+		var tools = '<button type="button" class="hb-exitbtn hb-icobtn" id="hb-searchbtn" ' +
+			'title="Rechercher (touche /)" aria-label="Rechercher">' + svg('search') + '</button>' +
+			'<button type="button" class="hb-exitbtn hb-icobtn" id="hb-prefbtn" ' +
+			'title="Affichage" aria-label="Réglages d\'affichage">' + svg('sliders') + '</button>';
+		/* Horloge d'abord, puis une seule rangée de boutons : sans ce regroupement
+		   les outils atterrissaient sur une ligne séparée sous la date. */
 		headEl.innerHTML = '<div class="hb-head__left"><h1 class="hb-head__title">' + esc(S.home.homeName) + '</h1>' +
 			'<p class="hb-head__sub" id="hb-summary">' + esc(summary()) + '</p></div>' +
-			'<div class="hb-head__right">' + clock + install + cfg + exit + '</div>';
+			'<div class="hb-head__right">' + clock +
+			'<div class="hb-head__tools">' + tools + install + cfg + exit + '</div></div>';
+		var sbtn = document.getElementById('hb-searchbtn');
+		if (sbtn) { sbtn.addEventListener('click', openSearch); }
+		var pbtn = document.getElementById('hb-prefbtn');
+		if (pbtn) { pbtn.addEventListener('click', openPrefs); }
 		var btn = document.getElementById('hb-install');
 		if (btn) {
 			btn.addEventListener('click', function () {
@@ -819,6 +912,236 @@
 	/* ------------------------------------------------------------------ */
 	/*  Feuille de détail (graphique)                                      */
 	/* ------------------------------------------------------------------ */
+
+	/* ------------------------------------------------------------------ */
+	/*  Recherche globale                                                  */
+	/* ------------------------------------------------------------------ */
+
+	var searchState = [];
+
+	function searchIndex() {
+		var out = [];
+		var seen = {};
+		S.rooms.forEach(function (r) {
+			r.tiles.forEach(function (t) {
+				var key = String(t.id);
+				if (seen[key]) { return; }
+				seen[key] = 1;
+				/* Le libellé d'une tuile est `label` : `name` n'existe pas et vaut
+				   null, ce qui rendait la recherche muette sur les tuiles. */
+				var lbl = t.label || t.name || '';
+				out.push({
+					kind: 'tile', id: key, label: lbl, sub: r.name, tile: t,
+					text: normTxt(lbl + ' ' + r.name)
+				});
+			});
+		});
+		S.rooms.forEach(function (r) {
+			if (!r.tiles.length) { return; }
+			out.push({
+				kind: 'room', id: 'room:' + r.id, label: r.name,
+				sub: r.tiles.length + ' tuile' + (r.tiles.length > 1 ? 's' : ''),
+				text: normTxt(r.name)
+			});
+		});
+		/* Un graphique suit toujours une tuile : le proposer en plus de la tuile
+		   du même nom donnait deux résultats identiques dans la liste. Seuls les
+		   graphiques sans tuile correspondante ont leur propre entrée. */
+		S.charts.forEach(function (ch) {
+			if (ch.tile_id && S.tiles[String(ch.tile_id)]) { return; }
+			out.push({
+				kind: 'chart', id: 'chart:' + ch.cmd_id, label: ch.label,
+				sub: ch.room || 'Graphique',
+				text: normTxt((ch.label || '') + ' ' + (ch.room || '') + ' graphique')
+			});
+		});
+		return out;
+	}
+
+	function searchResultsHtml(list) {
+		if (!list.length) {
+			return '<div class="hb-search__empty">Aucun résultat.</div>';
+		}
+		var html = '';
+		list.forEach(function (it, i) {
+			var icon = it.kind === 'room' ? 'home' : (it.kind === 'chart' ? 'chart' : ((it.tile && it.tile.icon) || 'sensor'));
+			html += '<button type="button" class="hb-res" data-i="' + i + '">' + svg(icon) +
+				'<span class="hb-res__txt"><span class="hb-res__l">' + esc(it.label) + '</span>' +
+				'<span class="hb-res__s">' + esc(it.sub) + '</span></span></button>';
+		});
+		return html;
+	}
+
+	function closeSearch() {
+		var el = document.getElementById('hb-search');
+		if (el && el.parentNode) { el.parentNode.removeChild(el); }
+		document.body.classList.remove('hb-noscroll');
+		searchState = [];
+	}
+
+	function openSearch() {
+		closePrefs();
+		closeSearch();
+		var el = document.createElement('div');
+		el.className = 'hb-search';
+		el.id = 'hb-search';
+		el.innerHTML = '<div class="hb-search__backdrop" data-close="1"></div>' +
+			'<div class="hb-search__panel" role="dialog" aria-modal="true" aria-label="Rechercher">' +
+			'<div class="hb-search__field">' + svg('search') +
+			'<input type="search" id="hb-search-input" placeholder="Tuile, pièce, graphique…" ' +
+			'autocomplete="off" spellcheck="false" aria-label="Rechercher dans le tableau de bord">' +
+			'<button type="button" class="hb-search__close" data-close="1" aria-label="Fermer">' + svg('close') + '</button>' +
+			'</div><div class="hb-search__results" id="hb-search-results"></div></div>';
+		document.body.appendChild(el);
+		document.body.classList.add('hb-noscroll');
+		var input = document.getElementById('hb-search-input');
+		var results = document.getElementById('hb-search-results');
+		var all = searchIndex();
+		var order = { tile: 0, room: 1, chart: 2 };
+
+		function paint() {
+			var q = normTxt(input.value);
+			var list = [];
+			all.forEach(function (it) {
+				if (!q || it.text.indexOf(q) >= 0) { list.push(it); }
+			});
+			list.sort(function (a, b) {
+				return (order[a.kind] - order[b.kind]) || String(a.label).localeCompare(String(b.label), 'fr');
+			});
+			list = list.slice(0, 40);
+			searchState = list;
+			results.innerHTML = searchResultsHtml(list);
+		}
+
+		function pick(i) {
+			var it = searchState[i];
+			if (!it) { return; }
+			closeSearch();
+			if (it.kind === 'room') {
+				S.active = String(it.id).replace('room:', '');
+				markActive();
+				paintSections();
+				return;
+			}
+			if (it.kind === 'chart') {
+				S.active = 'charts';
+				markActive();
+				paintSections();
+				return;
+			}
+			if (it.tile && it.tile.kind === 'scene') {
+				runScene(it.tile);
+				return;
+			}
+			scrollToTile(it.id);
+		}
+
+		input.addEventListener('input', paint);
+		input.addEventListener('keydown', function (e) {
+			if (e.key === 'Enter') { e.preventDefault(); pick(0); }
+		});
+		results.addEventListener('click', function (e) {
+			var btn = e.target.closest ? e.target.closest('.hb-res') : null;
+			if (!btn) { return; }
+			pick(Number(btn.getAttribute('data-i')));
+		});
+		el.addEventListener('click', function (e) {
+			if (e.target.getAttribute && e.target.getAttribute('data-close')) { closeSearch(); }
+		});
+		paint();
+		setTimeout(function () { input.focus(); }, 30);
+	}
+
+	/* Amène une tuile sous les yeux : si elle est dans une autre pièce que la
+	   vue courante, on repasse d'abord sur « Tout », sinon on ne l'afficherait
+	   pas et le survol n'aurait aucun effet visible. */
+	function scrollToTile(id) {
+		if (!S.tiles[id]) { return; }
+		var visible = (S.active === 'all');
+		if (!visible) {
+			S.rooms.forEach(function (r) {
+				if (String(r.id) !== String(S.active)) { return; }
+				r.tiles.forEach(function (t) { if (String(t.id) === String(id)) { visible = true; } });
+			});
+		}
+		if (!visible) {
+			S.active = 'all';
+			markActive();
+			paintSections();
+		}
+		requestAnimationFrame(function () {
+			var el = sectionsEl.querySelector('[data-tile="' + id + '"]');
+			if (!el) { return; }
+			el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+			el.classList.add('is-found');
+			setTimeout(function () { el.classList.remove('is-found'); }, 2400);
+		});
+	}
+
+	/* ------------------------------------------------------------------ */
+	/*  Réglages d'affichage (par appareil)                                */
+	/* ------------------------------------------------------------------ */
+
+	function closePrefs() {
+		var el = document.getElementById('hb-prefs');
+		if (el && el.parentNode) { el.parentNode.removeChild(el); }
+		document.body.classList.remove('hb-noscroll');
+	}
+
+	function prefToggleHtml(key, label, hint, on) {
+		return '<div class="hb-pref"><div class="hb-pref__t"><span>' + esc(label) + '</span>' +
+			'<span class="hb-pref__h">' + esc(hint) + '</span></div>' +
+			'<button type="button" class="hb-switch" data-pref="' + key + '" role="switch" aria-checked="' +
+			(on ? 'true' : 'false') + '"><span></span></button></div>';
+	}
+
+	function openPrefs() {
+		closeSearch();
+		closePrefs();
+		var hasWidgets = ((S.home && S.home.wallWidgets) || []).length > 0;
+		var dens = '';
+		[['compact', 'Compact'], ['normal', 'Normal'], ['large', 'Large']].forEach(function (d) {
+			dens += '<button type="button" class="hb-seg__b' + (PREFS.density === d[0] ? ' is-on' : '') +
+				'" data-density="' + d[0] + '">' + esc(d[1]) + '</button>';
+		});
+		var html = '<div class="hb-sheet" id="hb-prefs">' +
+			'<div class="hb-sheet__backdrop" data-close="1"></div>' +
+			'<div class="hb-sheet__panel hb-sheet__panel--prefs" role="dialog" aria-modal="true" aria-label="Affichage">' +
+			'<div class="hb-sheet__head"><div><div class="hb-sheet__title">Affichage</div>' +
+			'<div class="hb-sheet__sub">Réglages de cet appareil</div></div>' +
+			'<button type="button" class="hb-sheet__close" data-close="1" aria-label="Fermer">' + svg('close') + '</button></div>' +
+			'<div class="hb-pref"><div class="hb-pref__t"><span>Densité</span>' +
+			'<span class="hb-pref__h">Taille des tuiles</span></div><div class="hb-seg">' + dens + '</div></div>' +
+			(hasWidgets ? prefToggleHtml('widgets', 'Widgets', 'Consommation, température, météo…', Number(PREFS.widgets)) : '') +
+			prefToggleHtml('sections', 'Titres de pièces', 'Nom de la pièce au-dessus de ses tuiles', Number(PREFS.sections)) +
+			prefToggleHtml('screen', 'Écran allumé', 'Empêche la tablette de se mettre en veille', Number(PREFS.screen)) +
+			'</div></div>';
+		var wrap = document.createElement('div');
+		wrap.innerHTML = html;
+		document.body.appendChild(wrap.firstChild);
+		document.body.classList.add('hb-noscroll');
+		var panel = document.getElementById('hb-prefs');
+		panel.addEventListener('click', function (e) {
+			var t = e.target;
+			if (t.getAttribute && t.getAttribute('data-close')) { closePrefs(); return; }
+			var seg = t.closest ? t.closest('[data-density]') : null;
+			if (seg) {
+				PREFS.density = seg.getAttribute('data-density');
+				savePrefs();
+				var all = panel.querySelectorAll('[data-density]');
+				Array.prototype.forEach.call(all, function (b) { b.classList.toggle('is-on', b === seg); });
+				return;
+			}
+			var sw = t.closest ? t.closest('[data-pref]') : null;
+			if (sw) {
+				var k = sw.getAttribute('data-pref');
+				PREFS[k] = Number(PREFS[k]) ? 0 : 1;
+				sw.setAttribute('aria-checked', Number(PREFS[k]) ? 'true' : 'false');
+				savePrefs();
+				if (k === 'widgets' || k === 'sections') { paintSections(); }
+			}
+		});
+	}
 
 	function openSheet(ch) {
 		closeSheet();
@@ -1193,7 +1516,7 @@
 			loadSparks();
 			return;
 		}
-		var html = '';
+		var html = (S.active === 'all') ? widgetsStrip() : '';
 		var emptyAll = true;
 		S.rooms.forEach(function (r) { if (r.tiles.length) { emptyAll = false; } });
 
@@ -1633,6 +1956,7 @@
 			if (changed) { refreshTiles(); }
 			if (S.sheet && S.sheet.kind === 'detail') { refreshDetail(); }
 			if (wall.asleep) { wallPaint(); }
+			refreshWidgets();
 			S.polling = false;
 		}).catch(function () { S.polling = false; status(false); });
 	}
@@ -1692,6 +2016,26 @@
 				navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
 			});
 		}
+		loadPrefs();
+		applyPrefs();
+		/* Le verrou d'écran ne peut être demandé qu'après un geste : on réessaie
+		   à chaque appui tant qu'il n'est pas obtenu. */
+		document.addEventListener('pointerdown', keepAwake);
+		document.addEventListener('visibilitychange', function () {
+			if (!document.hidden) { keepAwake(); }
+		});
+		document.addEventListener('keydown', function (e) {
+			var k = (e.key || '').toLowerCase();
+			if ((k === 'k' && (e.ctrlKey || e.metaKey)) || (k === '/' && !/^(input|textarea)$/i.test((e.target.tagName || '')))) {
+				e.preventDefault();
+				openSearch();
+				return;
+			}
+			if (k === 'escape') {
+				if (document.getElementById('hb-search')) { closeSearch(); }
+				else if (document.getElementById('hb-prefs')) { closePrefs(); }
+			}
+		});
 		api({ action: 'layout' }).then(function (data) {
 			S.rooms = data.rooms || [];
 			S.favorites = data.favorites || [];
@@ -1733,6 +2077,16 @@
 			S.installEvent = e;
 			if (headEl) { paintHead(); }
 		});
+	}
+
+	/* Point d'observation pour le diagnostic, actif seulement avec #debug dans
+	   l'adresse : permet de lire l'état interne depuis la console du navigateur
+	   sans exposer quoi que ce soit en usage normal. */
+	if (location.hash === '#debug') {
+		window.HB = {
+			S: S, PREFS: PREFS, scrollToTile: scrollToTile, searchIndex: searchIndex,
+			openSearch: openSearch, closeSearch: closeSearch, prefs: function () { return PREFS; }
+		};
 	}
 
 	if (document.readyState === 'loading') {

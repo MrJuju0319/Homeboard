@@ -34,8 +34,20 @@ aucun build : PHP + JS natif.
 - **Scènes et boutons** : une tuile peut déclencher un scénario Jeedom ou une
   commande d'action pure, avec accusé d'envoi et état du scénario (en cours,
   terminé). Voir « Scènes et boutons » plus bas.
+- **Recherche globale** : un bouton dans l'en-tête (ou la touche `/`, `Ctrl+K`)
+  ouvre une recherche sur les tuiles, les pièces et les graphiques. Une tuile
+  trouvée est amenée à l'écran et signalée ; une pièce ouvre sa vue ; un scénario
+  se lance.
+- **Widgets** : jusqu'à quatre valeurs (consommation, température, météo…) en
+  bandeau en haut du tableau de bord **et** sous l'heure pendant la veille du
+  mode mur — un seul réglage pour les deux.
+- **Réglages d'affichage par appareil** : densité des tuiles, widgets, titres de
+  pièces, écran maintenu allumé. Stockés dans le navigateur (`localStorage`),
+  donc propres à chaque appareil : la tablette du salon et le téléphone peuvent
+  différer sans rien stocker dans Jeedom. Voir « Recherche et affichage ».
 - **Mode mur** : case à cocher dans la configuration. Voir « Mode mur ».
-- **Responsive** : 2 colonnes sur téléphone, 4 sur tablette, 6 sur écran 16".
+- **Responsive** : 2 colonnes sur téléphone, 4 sur tablette, 6 au-delà de
+  1000 px (une tablette de 1024 px en paysage lisait des tuiles trop larges).
   Navigation par chips sur mobile, barre latérale au-delà de 1100 px.
 - **PWA** : `plugins/homeboard/pwa/index.php` s'installe sur l'écran d'accueil
   (manifeste + service worker), plein écran, sans barre d'adresse.
@@ -108,6 +120,35 @@ aucun build : PHP + JS natif.
 - Un geste interrompu (`pointercancel`) remet à zéro l'état de glissement : un
   appel entrant ou un changement d'application ne peut pas figer le
   rafraîchissement.
+
+## Recherche et affichage
+
+Deux boutons dans l'en-tête, présents partout — y compris en plein écran, où la
+barre Jeedom est masquée.
+
+**Recherche** (`/` ou `Ctrl+K`). Elle porte sur les tuiles, les pièces et les
+graphiques, sans distinction d'accents ni de casse (`normTxt`).
+
+- une **tuile** : la vue repasse sur « Tout » si elle est dans une autre pièce,
+  puis la tuile est amenée au centre de l'écran et entourée d'ambre pendant
+  deux secondes ;
+- une **pièce** : sa vue s'ouvre ;
+- un **scénario** (tuile de type scène) : il est lancé, comme au clic ;
+- `Entrée` prend le premier résultat, `Échap` ferme.
+
+Les graphiques sont rattachés à leur tuile : proposer les deux donnait deux
+résultats identiques dans la liste, donc seul un graphique sans tuile
+correspondante a sa propre entrée.
+
+**Affichage.** Quatre réglages, propres à l'appareil (aucune écriture côté
+Jeedom) :
+
+- **densité** — compact, normal, large : change la taille et le format des tuiles ;
+- **widgets** — masque le bandeau sans effacer la configuration ;
+- **titres de pièces** — masque le nom des pièces au-dessus de leur grille ;
+- **écran allumé** — demande au navigateur de ne pas mettre l'écran en veille
+  (`WakeLock`). Il faut du HTTPS et un premier appui : le navigateur n'accorde le
+  verrou qu'après un geste de l'utilisateur.
 
 ## Plusieurs tableaux de bord
 
@@ -249,11 +290,12 @@ propre bloc de réglages.
   toutes les minutes (amplitude bornée, transition douce de 2 s), comme un
   économiseur d'écran. L'heure et les valeurs sont réécrites périodiquement, donc
   aucun pixel fixe ne reste allumé.
-- **Widgets** : jusqu'à quatre commandes d'information affichées sous l'heure —
-  consommation, température, météo, n'importe quel retour d'état Jeedom. Elles se
-  choisissent par recherche dans la section, le libellé se modifie sur place, la
-  croix retire la valeur. Les valeurs suivent le rafraîchissement normal : elles
-  sont à jour au réveil.
+- **Widgets** : jusqu'à quatre commandes d'information — consommation,
+  température, météo, n'importe quel retour d'état Jeedom. Elles se choisissent
+  par recherche dans la section, le libellé se modifie sur place, la croix retire
+  la valeur. Les mêmes valeurs s'affichent en haut du tableau de bord et sous
+  l'heure pendant la veille : un seul rendu, une seule liste, une seule
+  configuration. Les valeurs suivent le rafraîchissement normal.
 - **Écran OLED** : case dédiée. Sur une dalle OLED un pixel noir ne consomme
   rien, donc Homeboard abaisse la luminance (gris `#b7b7b7` au lieu de blanc),
   porte le décalage à 12 % de la largeur / 9 % de la hauteur toutes les 45 s, et
@@ -357,6 +399,12 @@ strict plutôt que permissif.
   `.deploy.env` non versionné contenant `JEEDOM_HOST=…`). Variables optionnelles :
   `JEEDOM_PATH` (défaut `/var/www/html/plugins`) et `JEEDOM_WEBUSER`
   (défaut `www-data`).
+
+### Diagnostic dans le navigateur
+
+Ajouter `#debug` à l'adresse du tableau de bord expose un objet `window.HB`
+(état chargé, préférences, fonctions de recherche) dans la console du navigateur.
+Il n'existe que si le fragment est présent : rien n'est exposé en usage normal.
 
 ## Limites connues
 
