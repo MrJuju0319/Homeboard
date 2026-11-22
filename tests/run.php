@@ -482,31 +482,92 @@ echo "\n[15] Sauvegarde et migration\n";
 check('aucune table héritée sur cette installation', homeboard::legacyTableExists() === false);
 check('migration à jour', homeboard::legacyMigrationPending() === false);
 
-/* Fausse table héritée, volontairement SANS la colonne `pos` : la lecture doit
-   échouer, ce qui vérifie qu'une erreur SQL n'est jamais confondue avec « rien à
-   migrer ». La table et le marqueur sont toujours remis en état, même en cas
-   d'échec d'un test. */
+/* [15a] Une erreur SQL sur la DÉTECTION ne doit jamais passer pour une absence
+   de table : sinon la migration se marque terminée alors que rien n'est fait. */
+homeboardState::$legacyProbe = function () {
+	throw new Exception('connexion perdue');
+};
+try {
+	$threw = throwsSomething(function () {
+		homeboard::legacyTableExists();
+	});
+	check('détection : l erreur SQL remonte', $threw);
+
+	config::save('migratedEqLogic', 0, 'homeboard');
+	$threw = throwsSomething(function () {
+		homeboard::migrateBoardsToEqLogic();
+	});
+	check('détection en erreur : migration interrompue', $threw);
+	check('détection en erreur : marqueur NON posé', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 0, 'marqueur=' . config::byKey('migratedEqLogic', 'homeboard', 0));
+	check('détection en erreur : pas de bandeau trompeur', homeboard::legacyMigrationPending() === false);
+} finally {
+	homeboardState::$legacyProbe = null;
+	config::save('migratedEqLogic', 1, 'homeboard');
+}
+
+/* [15b] Erreur SQL sur la LECTURE de l'ancienne table (colonne manquante). */
 DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
 DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
 DB::getConnection()->exec('CREATE TABLE `homeboard_board` (
 	`id` int(11) NOT NULL AUTO_INCREMENT,
 	`name` varchar(191) NOT NULL,
-	`slug` varchar(64) NOT NULL,
 	PRIMARY KEY (`id`)
 ) ENGINE=InnoDB');
 check('table héritée détectée', homeboard::legacyTableExists() === true);
-
 config::save('migratedEqLogic', 0, 'homeboard');
-check('table héritée + marqueur absent : migration en attente', homeboard::legacyMigrationPending() === true);
-
+check('table héritée sans marqueur : attente signalée', homeboard::legacyMigrationPending() === true);
 try {
 	$threw = throwsSomething(function () {
 		homeboard::migrateBoardsToEqLogic();
 	});
-	check('erreur SQL : exception remontée', $threw);
-	check('erreur SQL : migration NON marquée terminée', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 0, 'marqueur=' . config::byKey('migratedEqLogic', 'homeboard', 0));
-	check('erreur SQL : table héritée intacte', homeboard::legacyTableExists() === true);
+	check('lecture en erreur : exception remontée', $threw);
+	check('lecture en erreur : marqueur NON posé', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 0);
+	check('lecture en erreur : table intacte', homeboard::legacyTableExists() === true);
 } finally {
+	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
+	config::save('migratedEqLogic', 1, 'homeboard');
+}
+
+/* [15c] Reprise après interruption : deux tableaux migrés, puis nouvelle
+   tentative comme si le renommage final n'avait pas eu lieu — aucun doublon. */
+$legacyDdl = 'CREATE TABLE `homeboard_board` (
+	`id` int(11) NOT NULL AUTO_INCREMENT,
+	`name` varchar(191) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`pos` int(11) NOT NULL DEFAULT 0,
+	`isVisible` tinyint(1) NOT NULL DEFAULT 1,
+	`wallMode` tinyint(1) NOT NULL DEFAULT 0,
+	`wallDelay` int(11) NOT NULL DEFAULT 2,
+	`wallOled` tinyint(1) NOT NULL DEFAULT 0,
+	`wallWidgets` text,
+	PRIMARY KEY (`id`)
+) ENGINE=InnoDB';
+$legacyRows = "INSERT INTO `homeboard_board` (`name`,`slug`,`pos`) VALUES ('ZZ reprise A','zz-reprise-a',0),('ZZ reprise B','zz-reprise-b',1)";
+try {
+	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
+	DB::getConnection()->exec($legacyDdl);
+	DB::getConnection()->exec($legacyRows);
+	config::save('migratedEqLogic', 0, 'homeboard');
+	homeboard::migrateBoardsToEqLogic();
+	check('migration : 2 tableaux convertis', count(homeboard::boards()) === 3, (string) count(homeboard::boards()));
+	check('migration : marqueur posé', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 1);
+	check('migration : ancienne table renommée', homeboard::legacyTableExists() === false);
+
+	/* Nouvelle tentative sans renommage final (interruption simulée). */
+	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
+	DB::getConnection()->exec($legacyDdl);
+	DB::getConnection()->exec($legacyRows);
+	config::save('migratedEqLogic', 0, 'homeboard');
+	homeboard::migrateBoardsToEqLogic();
+	check('reprise : aucun doublon', count(homeboard::boards()) === 3, (string) count(homeboard::boards()));
+	check('reprise : marqueur posé', (int) config::byKey('migratedEqLogic', 'homeboard', 0) === 1);
+} finally {
+	foreach (array('zz-reprise-a', 'zz-reprise-b') as $slug) {
+		$b = homeboard::board($slug);
+		if (is_array($b) && $b['slug'] === $slug) {
+			homeboard::deleteBoard((int) $b['id']);
+		}
+	}
 	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board`');
 	DB::getConnection()->exec('DROP TABLE IF EXISTS `homeboard_board_old`');
 	config::save('migratedEqLogic', 1, 'homeboard');

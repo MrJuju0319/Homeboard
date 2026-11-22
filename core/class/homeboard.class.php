@@ -113,20 +113,39 @@ class homeboard extends eqLogic {
 		self::ensureFirstBoard();
 	}
 
-	/* L'ancienne table des tableaux (avant 0.6) est-elle encore là ? */
+	/* L'ancienne table des tableaux (avant 0.6) est-elle encore là ?
+
+	   Une erreur SQL REMONTE : elle ne doit jamais être confondue avec une
+	   absence de table, sinon la migration se déclarerait terminée alors que la
+	   table est toujours là et que rien n'a été converti. La recherche est
+	   exacte (information_schema) et non un LIKE, où `_` sert de joker. */
 	public static function legacyTableExists() {
-		try {
-			$row = DB::Prepare('SHOW TABLES LIKE ?', array('homeboard_board'), DB::FETCH_TYPE_ROW);
-		} catch (Throwable $e) {
-			return false;
+		if (is_callable(homeboardState::$legacyProbe)) {
+			/* Point d'injection utilisé par les tests d'erreur. */
+			return (bool) call_user_func(homeboardState::$legacyProbe);
 		}
-		return is_array($row) && count($row) > 0;
+		$row = DB::Prepare(
+			'SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
+			array('homeboard_board'),
+			DB::FETCH_TYPE_ROW
+		);
+		return is_array($row) && (int) $row['n'] > 0;
 	}
 
 	/* Migration pas encore faite : l'administration le signale au lieu de
-	   laisser croire que tout est en place. */
+	   laisser croire que tout est en place. Ici l'erreur SQL est absorbée (c'est
+	   un affichage, il ne doit pas casser la page) mais journalisée : le chemin
+	   d'écriture, lui, reste strict. */
 	public static function legacyMigrationPending() {
-		return self::legacyTableExists() && (int) config::byKey('migratedEqLogic', self::PLUGIN_ID, 0) !== 1;
+		if ((int) config::byKey('migratedEqLogic', self::PLUGIN_ID, 0) === 1) {
+			return false;
+		}
+		try {
+			return self::legacyTableExists();
+		} catch (Throwable $e) {
+			log::add(self::PLUGIN_ID, 'error', 'Lecture de l\'ancienne table impossible : ' . $e->getMessage());
+			return false;
+		}
 	}
 
 	/* Reprend chaque ligne de homeboard_board et crée l'équipement
@@ -2085,6 +2104,9 @@ class homeboardState {
 	/* Liste des tableaux pour la requête en cours (invalidée à chaque
 	   enregistrement ou suppression). */
 	public static $boardsCache = null;
+	/* Injecté par les tests pour simuler une erreur SQL sur la détection de
+	   l'ancienne table. Toujours null en production. */
+	public static $legacyProbe = null;
 	public static $tilesCache = array();
 	public static $actionsCache = array();
 }

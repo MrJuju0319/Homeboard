@@ -175,7 +175,12 @@ horloge, rythme de rafraîchissement) et les pièces.
 > `migratedEqLogic` n'est posé qu'après une migration menée à son terme : une
 > erreur SQL inattendue laisse la table intacte, ne marque rien, et
 > l'administration affiche un bandeau « Migration incomplète » jusqu'à ce que ça
-> passe. `homeboard_board_old` peut être effacée une fois les tableaux vérifiés.
+> passe. Détecter la table et la lire suivent la même règle : **une erreur SQL
+> n'est jamais interprétée comme une absence de table** (`information_schema`,
+> recherche exacte — pas un `LIKE`, où `_` est un joker). Une interruption en
+> cours de route reste reprise sans doublon : les tableaux déjà créés sont
+> retrouvés par leur slug, les tuiles sont rattachées, la table n'est renommée
+> qu'à la fin. `homeboard_board_old` peut être effacée une fois les tableaux vérifiés.
 
 La vue plein écran dans Jeedom
 (`index.php?v=d&p=homeboard&m=homeboard&board=<id|slug>`) demande seulement une
@@ -335,7 +340,8 @@ JavaScript, la validation de `plugin_info/info.json`, les tests purs, et un
 **garde anti-fuite** (`php tools/scan-secrets.php`) : le workflow échoue si une
 adresse privée (10/8, 172.16/12, 192.168/16), un domaine personnel, un bloc de
 clé privée ou une valeur de type secret apparaît dans les fichiers livrés — PHP,
-JS, CSS, JSON, Markdown et YAML. Ce n'est pas un scanner de secrets complet
+JS, CSS, JSON, Markdown, YAML et `.github/` (seul `.git`, qui contient
+l'historique, est écarté). Ce n'est pas un scanner de secrets complet
 (gitleaks, trufflehog) : c'est un filet ciblé, sans dépendance, qui doit rester
 strict plutôt que permissif.
 

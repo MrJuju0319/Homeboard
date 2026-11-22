@@ -18,7 +18,9 @@
 $root = dirname(__DIR__);
 $self = __FILE__;
 
-$skipDirs = array('.git', '.github', 'node_modules', 'vendor', 'screenshots');
+/* .github est analysé aussi : un workflow peut contenir une adresse ou une
+   clé (seul le dossier .git, qui contient l'historique, est écarté). */
+$skipDirs = array('.git', 'node_modules', 'vendor', 'screenshots');
 $exts = array('php', 'js', 'css', 'json', 'md', 'yml', 'yaml', 'conf', 'sh', 'txt');
 
 $patterns = array(
